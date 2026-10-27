@@ -1152,7 +1152,7 @@ forwarding to a running App, a window-less transient mode with a small result wi
 
 ## BL-055: First launch of 0.6.0-alpha.10 hangs on macOS
 
-- Status: Open (owner finding, 2026-10-27); diagnosis not started.
+- Status: Implemented for local review; owner UAT/visual acceptance pending. Diagnostic logging only; the launch-exit trigger remains unresolved.
 - Requested: 2026-10-27.
 - Evidence: macOS hang report from the owner (`error report.txt` in the repository root, git-ignored, never commit
   it); the App process section is extracted to the lead's private brief folder.
@@ -1161,3 +1161,50 @@ The first launch after installing alpha.10 froze (macOS "hang" event, about 33 s
 Lead's first reading: the main thread waits on a condition variable inside `main` while pywebview's `loaded` handler
 thread is in `webui/main.py` `_run_window.on_loaded` -> `native.watch_drops` -> pywebview DOM event registration
 (`webview.dom.event.__iadd__` -> `element._exists`), which needs the main thread; a possible deadlock. To confirm.
+
+Investigation (2026-10-27): the local Python 3.12.11 library has the same Mach-O UUID as the report's Python
+library. Symbolicating the main-thread addresses resolves `Py_Exit -> Py_FinalizeEx -> wait_for_thread_shutdown`,
+then a Python thread-lock acquisition. This is interpreter shutdown waiting for a non-daemon thread, not the
+normal native startup loop waiting for `loaded`. The remaining Python worker is pywebview's non-daemon loaded
+event handler: `watch_drops` registers a DOM handler through `Element.on`, whose synchronous Cocoa `evaluate_js`
+queues work with `AppHelper.callAfter` and waits on an unbounded result semaphore. With the native loop ended,
+that result cannot arrive; shutdown waits for the worker and the worker waits for the stopped GUI thread. The
+`_exists` frame is a decorator around `on`, not itself a DOM existence query. The lead's dependency is confirmed,
+but its lifecycle interpretation needs this correction.
+
+The extracted stacks do not establish why the GUI loop ended. The App's close coordinator, menus and chrome
+were traced, but no sampled frame identifies that earlier trigger. Candidates and code evidence:
+
+- Early close/quit overlapping registration: Cocoa's `windowWillClose_` stops the application loop after the last
+  window closes; the App's asynchronous close coordinator can approve closing before the page loads. A logged
+  closing/closed sequence before loop return would establish that route, though not which input requested it.
+- Native loop return without the App's close callbacks: Cocoa's `first_show` runs the loop only if the application
+  is not already running, and its `WebKitHost.keyDown_` has a direct Command-Q `app.stop_` route. The App installs
+  an interceptor for ordinary Command-Q, so this is a candidate bypass, not an established cause. Return without
+  closing/closed markers would separate this class from the guarded close route; native event evidence would
+  still be needed to identify the particular bypass.
+- Exception/exit unwinding the native loop: `_run` catches ordinary startup exceptions after `_run_window` and
+  `_serve` cleanup; `SystemExit` also reaches interpreter shutdown. Finalization is compatible with these routes,
+  but the stacks contain no earlier exception. A loop exception-type marker and the existing startup error log
+  would distinguish this from a normal return.
+
+Per the brief's fallback, no speculative lifecycle fix or pywebview patch is included. INFO logs now
+record initialized/before-show/shown/loaded/closing/closed, each drop registration stage, native loop return
+versus exception type, cleanup state and completion before the session log closes. They contain only stage names,
+booleans and renderer/exception types, with no paths, dropped names or exception contents. The deciding evidence
+is the next session log's sequence: close callbacks before return, a loop exception, or return without close;
+`drops=running` plus an unfinished registration stage identifies the shutdown overlap.
+
+Registration is unconditional on every document load. Migration and library warming do not gate this handler;
+consent and automatic tours run in the page after its startup/first-screen sequence. The alpha.9-to-alpha.10
+source changes affect tour/popup sizing, not native event dispatch or shutdown. No first-launch-only cause is
+proved; slower first-launch work can affect timing, and the shutdown overlap can recur on later launches or
+reloads. Windows also registers from the non-daemon loaded handler; WebView2 synchronously invokes its UI thread
+and waits for a result semaphore. A similar overlap is possible there, but the macOS stack does not prove a
+Windows occurrence. The report's duration is not a registration timeout or proof of recovery.
+
+Headless regression fakes stop the GUI loop during each of the four registrations and reproduce a shutdown
+join blocked by the loaded worker, then supply the missing GUI result to release both threads. They verify the
+diagnostic distinction, exception propagation, unchanged drop options/path delivery and close return values;
+they do not claim to prove a hang fix. No prefab, geometry, startup ordering, tour or locale wording is changed.
+Native launch/close reproduction and visual acceptance remain the owner's; Windows is not reviewed.

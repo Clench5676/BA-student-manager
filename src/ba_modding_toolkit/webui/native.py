@@ -42,10 +42,15 @@ def watch_drops(window: Any, on_paths: Callable[[list[str]], None]) -> None:
         pass
 
     doc = window.dom.document
+    logger.info("Native drop registration: begin event=dragenter")
     doc.events.dragenter += DOMEventHandler(noop, True, True)
+    logger.info("Native drop registration: begin event=dragstart")
     doc.events.dragstart += DOMEventHandler(noop, True, True)
+    logger.info("Native drop registration: begin event=dragover")
     doc.events.dragover += DOMEventHandler(noop, True, True, debounce=500)
+    logger.info("Native drop registration: begin event=drop")
     doc.events.drop += DOMEventHandler(on_drop, True, True)
+    logger.info("Native drop registration: complete")
 
 
 def renderer_supported(renderer: str) -> bool:

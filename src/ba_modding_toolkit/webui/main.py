@@ -145,6 +145,7 @@ def _run(args: argparse.Namespace, instance: InstanceLock) -> bool:
             startup_failure(reports, error)
         return False
     finally:
+        logger.info("Application lifecycle: run finished")
         restore()
         if handler is not None:
             logging.getLogger().removeHandler(handler)
@@ -183,9 +184,11 @@ def _serve(args: argparse.Namespace, instance: InstanceLock, reports: Reports, h
     except KeyboardInterrupt:
         pass
     finally:
+        logger.info("Application lifecycle: services cleanup begin")
         stop.set()
         server.stop()
         s.close()
+        logger.info("Application lifecycle: services cleanup complete")
     return s.restart_requested
 
 
@@ -217,14 +220,19 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
     s.chrome = WindowChrome(window, s.events)
     s.close_coordinator = CloseCoordinator(s, s.chrome.close, page_loaded=False)
     commands = None
+    lifecycle = {"shown": False, "loaded": False, "closing": False, "closed": False, "drops": "not-started"}
 
     def before_show():
         nonlocal commands
+        logger.info("Native lifecycle: before-show begin")
         if sys.platform == "darwin":
             commands = native.install_window_commands(s, s.chrome)
+        logger.info("Native lifecycle: before-show complete")
 
     window.events.before_show += before_show
     def on_shown():
+        lifecycle["shown"] = True
+        logger.info("Native lifecycle: shown")
         if s.chrome.active:
             s.chrome.host.dispatch(s.chrome.refresh)
     window.events.shown += on_shown
@@ -242,6 +250,7 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
         tray.attach()
 
     def on_initialized(renderer: str) -> bool:
+        logger.info("Native lifecycle: initialized renderer=%s", renderer)
         s.timings.record("native.initialize", time.perf_counter() - native_started)
         if renderer_supported(renderer):
             return True
@@ -250,6 +259,8 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
         return False
 
     def on_loaded() -> None:
+        lifecycle["loaded"] = True
+        logger.info("Native lifecycle: loaded begin")
         s.close_coordinator.page_loaded = True
         s.timings.record("native.document", time.perf_counter() - native_started)
         if sys.platform == "win32" and s.chrome.host is None:
@@ -266,15 +277,26 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
             if commands is not None:
                 AppHelper.callAfter(commands.refresh)
         try:
+            lifecycle["drops"] = "running"
             watch_drops(window, lambda paths: s.events.publish("drop", {"paths": paths}))
+            lifecycle["drops"] = "complete"
         except Exception:
+            lifecycle["drops"] = "failed"
             logger.exception("drag and drop is unavailable")
+        logger.info("Native lifecycle: loaded complete drops=%s", lifecycle["drops"])
 
     def on_closing() -> bool:
-        return s.on_closing()
+        lifecycle["closing"] = True
+        logger.info("Native lifecycle: closing begin")
+        allowed = s.on_closing()
+        logger.info("Native lifecycle: closing complete allowed=%s", allowed)
+        return allowed
 
     def on_closed() -> None:
+        lifecycle["closed"] = True
+        logger.info("Native lifecycle: closed begin")
         s.on_closed()
+        logger.info("Native lifecycle: closed complete")
 
     window.events.initialized += on_initialized
     window.events.loaded += on_loaded
@@ -284,15 +306,24 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
     try:
         # the tray starts on a thread of its own once the GUI loop runs
         native_started = time.perf_counter()
+        logger.info("Native lifecycle: loop starting")
         webview.start(func=tray.start if tray is not None else None, args=(window,) if tray is not None else None,
                       debug=debug, private_mode=True, storage_path=str(storage),
                       gui="edgechromium" if sys.platform == "win32" else None)
+    except BaseException as error:
+        logger.info("Native lifecycle: loop raised type=%s", type(error).__name__)
+        raise
+    else:
+        logger.info("Native lifecycle: loop returned")
     finally:
+        logger.info("Native lifecycle: cleanup begin shown=%s loaded=%s closing=%s closed=%s drops=%s",
+                    lifecycle["shown"], lifecycle["loaded"], lifecycle["closing"], lifecycle["closed"], lifecycle["drops"])
         if commands is not None:
             commands()
         s.chrome.dispose()
         if tray is not None:
             tray.close()  # on the main thread once the loop ended: the icon goes with the window
+        logger.info("Native lifecycle: cleanup complete")
 
 
 if __name__ == "__main__":
