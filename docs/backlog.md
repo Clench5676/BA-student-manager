@@ -1235,3 +1235,33 @@ reacquires the released instance lock while the registration worker is still blo
 is fixed; why the native loop ended about one second after startup is still unknown. No prefab, geometry or
 locale text changed. Native macOS/Windows launch, drag-and-drop, close/menu/chrome behaviour and visual acceptance
 remain for owner UAT; Windows is not natively reviewed.
+
+## BL-056: AI-assisted refinement of official portraits (funnel)
+
+- Status: Funnel (2026-10-27): idea being refined with the owner; not designed, not scheduled.
+- Requested: 2026-10-27.
+- Related: the editor plan (portrait module before L2D; AI as an optional module with deferred dependencies), the
+  portrait repair editor milestone, BL-016 through BL-018.
+
+The owner is considering AI assistance on the official portraits the App already reads from the user's install:
+
+1. Upscaling: a higher-resolution version of an official portrait. An earlier trial with Codex image generation
+   improved the detail considerably.
+2. Partial style repair: some later portraits are drawn less well than earlier ones (or the reverse). Give the model
+   a base portrait plus reference portraits and let it bring the base's style in line with the references, for
+   example through Codex (`codex:rescue`) or a similar image model.
+
+Spine-related tooling or skills could help, because many portraits are Spine atlases (no Spine skill was found in the
+available skill catalogue on 2026-10-27).
+
+Questions to refine before a design:
+
+- Which portraits: static textures only, or Spine atlases too (atlas regions, padding, premultiplied alpha, mesh
+  seams and the game's texture size limits must survive the edit).
+- Where the model runs: a cloud image service (account, key, cost, upload of the user's game art) or a local model
+  installed as an optional module (download size, GPU/CPU time).
+- Review and apply: before/after comparison, accepting parts of an edit, and applying the result as a Mod through the
+  existing library and switch, so it can always be restored.
+- Reference choice for style repair, and how far the model may change a portrait.
+- Development: the dev store's official images must not be uploaded or shared, so experiments with cloud models on
+  official art need an explicit owner decision (for example the owner runs them on their own install).
