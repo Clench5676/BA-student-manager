@@ -2067,6 +2067,65 @@ test('tour pages and sibling controls fit all six locales inside the notice pref
   } finally { setStrings('en-US', Object.fromEntries(strings(english))); }
 });
 
+for (const lang of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) {
+  test(`Settings New Features has no value and empty paths retain Not set in ${lang}`, async () => {
+    const Settings = await import('../../src/ba_modding_toolkit/web/js/settings.js');
+    const NGUI = await import('../../src/ba_modding_toolkit/web/js/ngui.js');
+    const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
+    const byPath = (path) => walk(settings).find((el) => el.dataset.path === `Rows/${path}`);
+    const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 0.02, `${actual} != ${expected}`);
+    handlers.set('settings.get', () => ({ result: { version: '0.6.0-alpha.10', language: lang,
+      languages: [{ code: lang, name: ui.languageName }], native: true, logPath: '',
+      gameDirs: { global: '', japan: '' }, libraryDir: '', outputDir: '' } }));
+    handlers.set('mods.state', () => ({ result: {} }));
+    handlers.set('app.tours', () => ({ result: { tours: [] } }));
+    setStrings(lang, Object.fromEntries(strings(ui)));
+    try {
+      await Settings.open(null, 'general');
+      assert.ok(!byPath('Tours/Value'), 'the action-only row has no value label');
+      const title = byPath('Tours/Title'), caption = byPath('Tours/Btn_0/Label_Locale');
+      assert.deepEqual(walk(settings).filter((el) => el.dataset.path?.startsWith('Rows/Tours/') && el.textContent)
+        .map((el) => el.textContent.replace(/\n/g, '')), [ui.tour.title, ui.tour.open]);
+      assert.equal(byPath('Log/Value').textContent, ui.settings.notSet);
+      const row = NGUI.rect(byPath('Tours')), button = NGUI.rect(byPath('Tours/Btn_0'));
+      // UIPopup_Option_PC: existing row width/title/tag and adapted ETCSetting/ButtonBg (300 x 112).
+      near(row[2], 1552 * S); near(row[3], 272 * S);
+      const titleRect = NGUI.rect(title);
+      near(titleRect[0] - row[0], (1552 / 2 - 718.5) * S);
+      near(titleRect[1] - row[1], (55 - 76 / 2) * S);
+      near(titleRect[2], 1440 * S); near(titleRect[3], 76 * S);
+      near(button[0] - row[0], (1552 / 2 + 550 - 150) * S);
+      near(button[1] - row[1], 130 * S);
+      near(button[2], 300 * S); near(button[3], 112 * S);
+      const tag = NGUI.rect(byPath('Tours/Title/TagDeco'));
+      near(tag[2], 6 * S); near(tag[3], 45 * S);
+      for (const el of [title, caption]) {
+        const fs = parseFloat(el.style.fontSize), rect = NGUI.rect(el);
+        for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440]]) for (const density of [1, 2]) {
+          const scale = Math.min(width / 1920, height / 1080) * density;
+          for (const line of el.textContent.split('\n')) assert.ok(line.length * 0.6 * fs * scale <= (rect[2] + 0.02) * scale);
+          assert.ok(el.textContent.split('\n').length * fs * 1.15 * scale <= (rect[3] + 0.02) * scale);
+        }
+      }
+      const open = walk(settings).find((el) => el.tagName === 'BUTTON' && el.getAttribute('aria-label') === ui.tour.open
+        && NGUI.rect(el).every((value, i) => Math.abs(value - button[i]) < 0.02));
+      assert.ok(open);
+      const pending = open.click();
+      await drawn(dialog, 'cancel');
+      assert.ok(walk(dialog).some((el) => el.textContent === ui.tour.empty));
+      action(dialog, 'cancel').click();
+      await pending;
+      await Settings.open(null, 'folders');
+      for (const name of ['Game_global', 'Game_japan', 'Library', 'Output']) {
+        assert.equal(byPath(`${name}/Value`).textContent, ui.settings.notSet, name);
+      }
+    } finally {
+      action(dialog, 'cancel')?.click(); settings.hidden = true; handlers.clear();
+      setStrings('en-US', Object.fromEntries(strings(english)));
+    }
+  });
+}
+
 test('Settings replay keeps the version list underneath and earlier tours remain selectable', async () => {
   handlers.set('app.tours', () => ({ result: { tours: [
     { version: '0.6.0', pages: tourPages }, { version: '0.5.0', pages: [{ ...tourPages[0], version: '0.5.0' }] },

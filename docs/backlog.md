@@ -508,7 +508,7 @@ simulation, cannot install anything and must not exist in a stable build.
 
 ## BL-021: First-launch new-version feature tour
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending. Text-only tours reuse message sizing for the longest localized page; illustrated tours keep the large frame.
+- Status: Implemented for local review; owner UAT/visual acceptance pending. Settings' New Features row omits its value label while preserving row geometry and empty-path placeholders.
 - Owner review of the 0.6.0 draft (2026-10-26): merge the photography and shared-gallery pages into one student
   thumbnail page (`学生详情全屏后增加大头照拍摄功能`), drop the release-notes page; publication awaits the owner's OK
   on the revised copy.

@@ -100,13 +100,14 @@ async function checkFiles() {
 }
 
 // a value with one or two buttons on the right (folders, version, cache); long values wrap, never cut
-function valueRow(name, y, title, value, buttons, { below = false } = {}) {
+function valueRow(name, y, title, value, buttons, { below = false, showValue = true } = {}) {
   const room = below ? 1440 : 1420 - buttons.length * 320;
   const f = wrapPath(value || T("settings.notSet"), 38, 30, room, 3);
   const lineH = f.fs * 1.3, blockH = Math.max(lineH * f.lines, 112);
   const h = 130 + blockH + 30 + (below ? 132 : 0), row = rowBase(name, y, h, title), hits = [];
   const midY = h / 2 - 130 - blockH / 2;
-  row.children.push(node("Value", [-718, midY], [label(f.text, f.fs, "#2d4664/1.00", room, lineH * f.lines + 10, { pivot: 3, depth: 8 })]));
+  // Action-only rows keep the same spacing without a value label.
+  if (showValue) row.children.push(node("Value", [-718, midY], [label(f.text, f.fs, "#2d4664/1.00", room, lineH * f.lines + 10, { pivot: 3, depth: 8 })]));
   // buttons side by side share one caption size (Buttons.smallButton's 300 x 112, range 44 down to 30)
   const size = buttons.length > 1 ? NGUI.fitGroup(buttons.map(([caption]) => caption), 44, 30, 300 - 60, 2, { maxH: 112 - 20 })[0].fs : null;
   buttons.forEach(([caption, fn, enabled = true], i) => {
@@ -221,7 +222,7 @@ function rows({ builtSize = null, sizeError = null } = {}) {
         render();
       }));
     add(valueRow("Version", 0, T("settings.version"), (p.version || "").replace(/-dev$/, ""), [[T("settings.update.check"), checkUpdate, !checkingUpdate]]));
-    add(valueRow("Tours", 0, T("tour.title"), "", [[T("tour.open"), () => call(Tours.browse)]]));
+    add(valueRow("Tours", 0, T("tour.title"), "", [[T("tour.open"), () => call(Tours.browse)]], { showValue: false }));
     if (p.prereleasePreviews === true) add(valueRow("UpdateSimulation", 0, T("update.simulation.entry"), T("update.simulation.choose"),
       [[T("update.notes"), () => simulateUpdate(true)], [T("update.simulation.empty"), () => simulateUpdate(false)]]));
     add(radioRow("StartupUpdate", 0, T("settings.update.startup"), ON_OFF(), p.startupUpdate !== false, (v) => set("startupUpdate", v)));

@@ -65,7 +65,17 @@ def test_review_controls_use_official_popup_and_settings_nodes(request, tmp_path
         assert caption['pos'] == [0, 2]
         assert [caption['widgets'][0][k] for k in ('w_', 'h_', 'fontSize', 'pivot')] == [400, 180, 72, 4]
     official.require_layout('UIPopup_Option_PC')
-    button = subtree(game.layout('UIPopup_Option_PC'), 'Center/Popup/List/Sound_Setting/ETCSetting/ButtonBg')
+    option = game.layout('UIPopup_Option_PC')
+    row_path = 'Center/Popup/List/Sound_Setting/Sound_Scroll View/Grid_2/Master/Type_3'
+    row_body = subtree(option, f'{row_path}/BG')
+    row_sprite = next(w for w in row_body['widgets'] if 'sprite' in w)
+    assert [row_sprite[k] for k in ('sprite', 'w_', 'pivot')] == ['Common_Bg_Raius5px', 1552, 4]
+    row_title = subtree(option, f'{row_path}/Label_Locale_OptionTitle')
+    assert [row_title['widgets'][0][k] for k in ('h_', 'fontSize', 'pivot')] == [76, 50, 3]
+    tag = subtree(row_title, 'TagDeco')
+    assert tag['pos'] == [-13, 5.2]
+    assert [tag['widgets'][0][k] for k in ('sprite', 'w_', 'h_', 'pivot')] == ['Common_Square_Bg', 6, 45, 4]
+    button = subtree(option, 'Center/Popup/List/Sound_Setting/ETCSetting/ButtonBg')
     body = next(w for w in button['widgets'] if 'sprite' in w)
     assert [body[k] for k in ('sprite', 'w_', 'h_', 'pivot')] == ['Common_Btn_BG', 402, 136, 4]
     caption = subtree(button, 'Label_Locale')
