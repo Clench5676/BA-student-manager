@@ -839,3 +839,122 @@ the checked one. Unrelated objects and pixels outside the official regions are u
 unchanged. The bundle is larger than K5's (6.5 MB against 4.6 MB). Known residue: a faint light trace under the
 smile's mouth and above the right eye in the eye-close pose. The expression crops keep K5's undeformed setup geometry,
 which matches how they were generated; the game's face deforms move these overlays slightly.
+
+
+## 11. K6: deterministic cut engine and R1b reproduction
+
+`web/js/refine-composite.js` now exports `poseTracks` and `listPoses`, alongside the unchanged setup-pose
+entry point. The shipped runtime's public `AnimationState` applies idle, expression and blink on tracks 0, 1
+and 2 with independent times. Geometry still comes from attachment `computeWorldVertices`, including mesh
+deforms, clipping, draw order and colours. The runtime runs under Node without a DOM. No runtime internals
+were inspected or reproduced; Python production code never launches Node. The test helper alone does so.
+
+`refine_cut.py` accepts explicit `Pose` geometries, full-frame or boxed targets, untargeted animation poses,
+official pages, density and frame. It returns pages, edited-mesh and allowed-change masks, and a serializable
+per-slot/per-pose report. `CutParameters` names the fixed thresholds and radii. A manifest can be run with
+`python -m ba_modding_toolkit.refine_cut manifest.json --output <absolute-external-folder>`; its geometry,
+targets and masks are data, so another portrait requires no source changes. Output and PNG review sheets
+must be outside the source tree. Generation is separate and was never invoked for K6.
+
+Masking propagates from non-Normal and caller-named slots through shared regions and all their alternate
+attachments. Frozen texels are excluded even when another mesh uses those page coordinates. Static colour
+uses cover fill with smoothed residuals behind occluders. The median vote is restricted to static parts
+beneath swappable slots near their default features; applying it to the front hair was an implementation
+error caught by the golden comparison and corrected. Silhouette growth and shrinkage stay inside meshes,
+with protected masked footprints. Untargeted reveals extend this part's edited colours. Bleed protects
+unedited polygons and their two-texel margins, with atlas bounds used only for its extent and undrawn regions.
+
+Several swappable slots are solved **bottom to top in each pose's draw order**. Each upper solve therefore
+uses the final lower parts; the solve also removes the current upper composite. A repeated identical slot
+attachment is solved once, using its first targeted pose in input order. Noncoincident reuse of an unmasked
+region within a pose fails explicitly. Swappability is attachment identity, not a slot-name convention;
+public runtime metadata distinguishes attachment removal from an animation making its colour invisible.
+
+The gate compares each soft join with gradient-distribution-matched interior error (20 quantile bins,
+opaque generated pixels only, maximum ratio 1.0). Crop gates use only the supplied target box: unrelated
+pixels outside it would supply artificial zero-error reference samples. Every target is re-rendered and
+compared, every untargeted pose has reveal counts, and page invariants check frozen texels, allowed changes
+and alpha support. A failed check raises `GateError`; only an explicit diagnostic run returns failed gates.
+Review output includes join crops, silhouette tiles and each expression beside its target.
+
+`refine_assembly.assemble_mod` accepts `allow_generated_alpha=True` only with a projected RGBA page and an
+explicit binary edited-mesh mask (or that mask in the assembly report). Alpha outside it is rejected.
+Official-region bounds, integer scale, unrelated serialized objects, unchanged atlas/skeleton, RGBA32
+staging, LZ4, CRC and decoded-pixel reload checks remain in force. NumPy remains a development dependency;
+a tracked import check excludes the optional refinement modules from shipped Python and JavaScript paths.
+
+### Reference differences and fixed assumptions
+
+The brief's wording ("not within 5 px of the mesh boundary", "nearest edited colour" bleed) differed from R1b's
+actual arithmetic: R1b feathers overlay alpha through the first five mesh pixels (3,036 overlay texels in that band,
+by up to 170 alpha levels) and bleeds with a smooth push-pull fill. The owner accepted R1b, so the lead set the
+defaults to R1b's arithmetic in review; `CutParameters.r1b_reference()` pins it and equals the defaults.
+`CutParameters.strict()` keeps the stricter variant (five-pixel exclusion, then a five-pixel feather; nearest-colour
+bleed), which has synthetic controls but no visual acceptance. With the defaults and no caller-named masks (the
+halos are found from their additive slots), the golden page is still byte-identical and the packed bundle has R1b's
+SHA-256.
+
+Other assumptions are explicit: targets are already approved/aligned, the first pose is the base, pages
+are straight alpha, density is an integer page scale, and geometry/frame share world coordinates. The
+cut performs no alignment or semantic skin/lettering recognition. Skin-offset sampling uses R1b's flat,
+opaque, local colour test. Atlas metadata is preferred; without it the drawn UV bounds constrain bleed.
+Opaque-level normalization uses one when no opaque official interior exists. Existing setup geometries
+are deliberately used for K5's generations, while the new animated geometry is verified independently.
+
+### Golden and idle results
+
+The local golden driver uses the supplied setup geometries and existing generations, then packs through
+the engine. The page is **100.000000% byte-identical** to R1b: **0 differing texels**, maximum channel
+difference **0**, with all masked texels identical. No threshold or golden tolerance was loosened.
+
+| Join | Engine ratio | Saved R1b ratio | Absolute difference |
+| --- | ---: | ---: | ---: |
+| Waist | 0.940952 | 0.94 | 0.000952 |
+| Face edge | 0.593096 | 0.59 | 0.003096 |
+| Front hair | 0.791722 | 0.79 | 0.001722 |
+
+The base silhouette IoU is **0.992023**. The seven targeted poses pass their gates. The packed RGBA32
+bundle is **6,537,887 bytes**, with valid CRC, byte-identical decoded pixels and unchanged unrelated
+objects and official inputs. All seven renders from the reloaded bundle also match their saved R1b renders byte for byte. No mod was
+applied and no assets or review images are tracked.
+
+The official animation helper lists 19 poses: base (`Idle_01` plus `00`), `01` through `06`, `99`, three
+blink samples, and eight evenly spaced idle samples over the 3.33333349-second loop, excluding its duplicate
+endpoint. Idle times are 0, 0.416667, 0.833333, 1.25, 1.666667, 2.083333, 2.5 and 2.916667 seconds.
+Every sampled idle reveals **zero** texels between unmasked parts. Their vertices share a vertical root
+translation (0 to -2.5 world units; floating-point spread below 0.00002), with unchanged attachments and
+colours. Thus R1b's geometric idle assumption is confirmed for these samples. Comparing raster composites
+alone gives 16–84 false reveals because subpixel translation changes bilinear resampling; the engine's
+reveal counter instead samples occluding alpha directly in world/UV space. At native page density, `99`
+and the middle blink sample each expose **854** head texels. Numbered expression counts are 0, 13, 230,
+191, 231 and 284 for `01` through `06`. These include the posed face deforms and are not K5 setup counts.
+
+### Validation and limits
+
+Synthetic controls cover soft joins, shared masked atlas space, fully opaque silhouette growth beyond two
+pixels and shrinkage, alpha-drawn overlays, median spill rejection, idle-only reveals, overlapping
+swappable slots, polygon bleed protection, all gate outcomes, default/reference policy differences and
+mesh-constrained alpha packing. The optional official-view test poses every listed animation through the
+shipped runtime and skips without `BAMT_TEST_GAME_DIR`.
+
+Validation completed from the worktree with the requested isolated pytest plugin and its official view:
+
+- Full JavaScript suite: **1,916 passed**, zero failed or skipped (10.24 seconds).
+- Full Python suite: **3,362 passed, 27 skipped**, zero failed (283.55 seconds). Three existing locale
+  deprecation warnings remain. The isolated test configuration with the official view was used; the fallback
+  without isolation was not needed.
+- Related coverage: `test_refine_cut.py` has 20 cases, `test_refine_composite.py` 22 and
+  `test_refine_assembly.py` 48; `js/refine_composite.test.mjs` has 15. The official animation test ran.
+- Local golden: all seven targeted poses pass with diagnostic mode disabled; exact page, exact packed
+  pose renders, masked bytes, source hashes and bundle reload all pass. The standalone idle probe also
+  re-ran after adding public attachment-state metadata.
+
+The worktree's index lock is outside the writable sandbox, so commits are delivered in the requested Git
+bundle, under `codex/refine-cut`, based on `ed898163`. Engine commit: `efb6dd03`; tests: `7f39c35f`;
+the final documentation commit records this section and the one backlog status line. No branch was
+switched and no repository metadata or files in the primary checkout were changed.
+
+Visual fidelity, lettering, expression character and the appearance in the game remain the owner's
+acceptance. Numerical agreement with the accepted local R1b result proves reproduction, not a new visual
+verdict. The strict variant would need its own visual acceptance before use.
+No GUI, screenshots, browser preview, audio, image generation, package build, push or installation was used.

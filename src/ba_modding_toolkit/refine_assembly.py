@@ -2,7 +2,8 @@
 
 Region crops are unrotated, trimmed attachments. Box crops use atlas page coordinates
 (left, top, right, bottom). Whole pages retain the official layout at any resolution.
-Generated alpha never replaces official alpha. PMA defaults to the atlas declaration,
+Generated alpha requires an explicit projected-page option and edited mesh mask.
+PMA defaults to the atlas declaration,
 as in atlas_remap; callers with independent page metadata can override it explicitly.
 """
 
@@ -162,7 +163,8 @@ def assemble_mod(official_bundles: list[Path], generated: Path | Image.Image, ou
                  atlas_name: str, page_name: str, region: tuple[str, int] | None = None,
                  box: tuple[int, int, int, int] | None = None, scale: int = 1,
                  generated_pma: bool = False, page_pma: bool | None = None,
-                 projected: Assembly | None = None) -> dict:
+                 projected: Assembly | None = None, allow_generated_alpha: bool = False,
+                 edited_mesh_mask: Image.Image | None = None) -> dict:
     """Build one released-form texture mod, with its official name, LZ4 and fixed CRC.
 
 Supply all official portrait parts, including atlas and skeleton. Only the bundle
@@ -173,6 +175,8 @@ The output directory must not already contain the target file.
 """
     if type(scale) is not int or scale < 1:
         raise ValueError("Page scale must be a positive integer")
+    if allow_generated_alpha and projected is None:
+        raise ValueError("Generated alpha requires a projected page")
     paths = [Path(path).resolve() for path in official_bundles]
     inputs = remap.read_inputs(paths)
     if atlas_name not in inputs.atlases or atlas_name not in remap.pair_atlases(inputs.skeletons, {atlas_name: b""}):
@@ -212,7 +216,16 @@ The output directory must not already contain the target file.
         baseline = official.resize((official.width * scale, official.height * scale), Image.Resampling.NEAREST)
         if projected.image.mode != "RGBA" or projected.image.size != baseline.size:
             raise ValueError("Projected page must be RGBA at the requested integer scale")
-        if projected.image.getchannel("A").tobytes() != baseline.getchannel("A").tobytes():
+        alpha_diff = ImageChops.difference(projected.image.getchannel("A"), baseline.getchannel("A"))
+        if allow_generated_alpha:
+            mesh = edited_mesh_mask if edited_mesh_mask is not None else projected.report.get("edited_mesh_mask")
+            if not isinstance(mesh, Image.Image) or mesh.mode != "L" or mesh.size != baseline.size:
+                raise ValueError("Generated alpha requires an L mask of edited meshes at page size")
+            if any(value not in (0, 255) for value in mesh.tobytes()):
+                raise ValueError("Edited mesh mask must be binary")
+            if ImageChops.multiply(alpha_diff, ImageChops.invert(mesh)).getbbox():
+                raise ValueError("Projected alpha changed outside edited meshes")
+        elif alpha_diff.getbbox():
             raise ValueError("Projected page changed official alpha")
         mask = Image.new("L", baseline.size)
         draw = ImageDraw.Draw(mask)
