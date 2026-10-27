@@ -298,6 +298,9 @@ def _resize_float(values, size):
 
 def _weights(box, master_size, feather):
     l, t, r, b = box
+    # Small head boxes still need an interior at full priority. An absolute
+    # feather wider than the crop would otherwise dilute every head edit.
+    feather = min(feather, max(1., min(r - l, b - t) / 4))
     x, y = np.arange(r - l) + .5, np.arange(b - t) + .5
     wx, wy = np.ones(r - l), np.ones(b - t)
     if l: wx *= np.minimum(x / feather, 1)
