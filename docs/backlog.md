@@ -1274,6 +1274,7 @@ remain for owner UAT; Windows is not natively reviewed.
   kept join bands 3 px off the outer silhouette, where the waist band met thin outline structures (K5's seam still
   fails at 2.23, R1b passes at 0.93). R1c built from K8's returns for owner review: waist 0.972, face edge 0.699,
   front hair 0.978, silhouette IoU 0.996, import accepted. Head: K8's v1 retry (v2 still adds a hair outline).
+- Owner review of R1c (2026-10-28): good, no defect found (the added hair outline included).
 - R1c stopped after one retry (2026-10-27; K8): movement, overlap RMSE and crop-boundary gates still fail;
   no cut or mod was built. See experiment section 13 for the four-crop run and merge/key artifacts.
 - Owner review of the K4 test mods (2026-10-27): D1 and D3 are acceptable as generated images, but the joins are
