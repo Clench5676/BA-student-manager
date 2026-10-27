@@ -1667,3 +1667,14 @@ the unchanged K6 band-error limit. The owner remains the visual authority. No R1
   version bump, installation or push. K6 cut/defaults and the App's import implementation are unchanged.
 - The normal index is blocked. Delivery remains a refreshed Git bundle on `codex/refine-merge`.
   Key-rim core commit: `eee10c56`; tests: `8afe4569`; documentation id is in the delivery message.
+
+### Lead review and R1c
+
+The remaining waist failure (1.078) sat where the waist join band crosses the outer silhouette around the saddle
+clamp and seat post, not along the join. The outer silhouette has its own gates, so the join gate now keeps its bands
+3 composite px inside the opaque generation (`CutParameters.join_silhouette_margin`). On the saved renders this keeps
+K5's waist seam rejected (2.08 without the margin, 2.23 with it) and R1b accepted (0.94, 0.93); the R1b golden is
+still byte-identical. With it, R1c passes every gate: waist 0.972, face edge 0.699, front hair 0.978, silhouette IoU
+0.996, all six expression poses below 0.87. The packed bundle reloads exactly and the App's unchanged import code
+accepts it as `shiroko_ridingsuit` (`spr`). The head is K8's v1 retry; it adds a darker hair outline that the owner's
+visual acceptance must judge.
