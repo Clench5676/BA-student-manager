@@ -38,3 +38,36 @@ test('runtime clipping, hidden slots and explicit null replacement',()=>{
  assert.equal(g.attachments[1].slot,'front');
  assert.deepEqual(poseSetup(S,atlas(0),fixture(),{back:null}).attachments.map(a=>a.slot),['front']);
 });
+
+import {poseTracks, listPoses} from '../../src/ba_modding_toolkit/web/js/refine-composite.js';
+function animated() {
+ const f=fixture('mesh');
+ f.animations={Idle_01:{bones:{root:{translate:[{x:0,y:0},{time:2,x:8,y:4}]}}},
+  '00':{attachments:{default:{back:{body:{deform:[{vertices:[1,2,1,2,1,2,1,2]}]}}}}},
+  '01':{slots:{back:{attachment:[{name:'alternate'}]}}},
+  '99':{slots:{back:{attachment:[{name:null}]}}},
+  Eye_Close_01:{slots:{back:{attachment:[{name:'body'},{time:.1,name:null}]}}}};
+ return f;
+}
+test('AnimationState under Node: independent tracks, mesh deformation and blink',()=>{
+ const f=animated();
+ const base=poseTracks(S,atlas(0),f);
+ assert.deepEqual(base.attachments[0].vertices,[8,20,14,20,14,24,8,24]);
+ const moved=poseTracks(S,atlas(0),f,[{track:0,animation:'Idle_01',time:1},{track:1,animation:'00'}]);
+ assert.deepEqual(moved.attachments[0].vertices,[12,22,18,22,18,26,12,26]);
+ assert.equal(poseTracks(S,atlas(0),f,[{track:1,animation:'01'}]).attachments[0].attachment,'alternate');
+ assert.deepEqual(poseTracks(S,atlas(0),f,[{track:1,animation:'00'},{track:2,animation:'Eye_Close_01',time:.11,loop:false}]).attachments.map(a=>a.slot),['front']);
+ const poses=listPoses(S,atlas(0),f,{idleFrames:4,blinkFrames:3});
+ assert.deepEqual(poses.map(p=>p.name),['base','01','99','blink-0','blink-1','blink-2','idle-0','idle-1','idle-2','idle-3']);
+ for(const p of poses) assert(poseTracks(S,atlas(0),f,p.tracks).attachments.length);
+ assert.equal(poses.at(-1).tracks[0].time,1.5);
+ assert.throws(()=>poseTracks(S,atlas(0),f,[{track:0,animation:'missing'}]),/Unknown animation/);
+ assert.throws(()=>poseTracks(S,atlas(0),f,[{track:0,animation:'00',time:-1}]),/time/);
+ assert.throws(()=>listPoses(S,atlas(0),f,{idleFrames:-1}),/counts/);
+});
+test('idle fallback and skeletons without expression animations',()=>{
+ const f=fixture();f.animations={idle_other:{}};
+ assert.equal(listPoses(S,atlas(0),f)[0].tracks[0].animation,'idle_other');
+ assert.equal(poseTracks(S,atlas(0),f).attachments.length,2);
+ assert.equal(listPoses(S,atlas(0),fixture()).length,1);
+});

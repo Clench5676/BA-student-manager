@@ -268,3 +268,45 @@ def test_projected_page_uses_k4_packer_and_rejects_alpha_or_outside_changes(tmp_
         bad=candidate.copy();bad.putpixel(xy,colour)
         with pytest.raises(ValueError,match=message):
             assemble_mod([source],bad,tmp_path/label,atlas_name='hero.atlas',page_name='page.png',scale=2,projected=Assembly(bad,{}))
+
+
+def test_generated_alpha_requires_mesh_mask_and_roundtrips(tmp_path):
+    from ba_modding_toolkit.refine_assembly import Assembly
+    text = atlas_text([('page.png', (20, 18), [('body', -1, (4, 3), (6, 4), (6, 4), (0, 0), 0)])])
+    source = write_bundle(tmp_path / 'official' / NAME, {'hero.atlas': text}, {'page': page(), 'other': pattern((8, 8), 31)}, texture_format=25)
+    before = source.read_bytes()
+    original = remap.read_inputs([source])
+    candidate = original.textures['page'].resize((40, 36), Image.Resampling.NEAREST)
+    candidate.putpixel((10, 8), (100, 120, 140, 7))
+    mesh = Image.new('L', candidate.size); mesh.putpixel((10, 8), 255)
+    common = dict(atlas_name='hero.atlas', page_name='page.png', scale=2,
+                  projected=Assembly(candidate, {}), allow_generated_alpha=True)
+    with pytest.raises(ValueError, match='requires an L mask'):
+        assemble_mod([source], candidate, tmp_path / 'missing', **common)
+    with pytest.raises(ValueError, match='outside edited meshes'):
+        assemble_mod([source], candidate, tmp_path / 'outside', edited_mesh_mask=Image.new('L', candidate.size), **common)
+    bad = mesh.copy(); bad.putpixel((10, 8), 128)
+    with pytest.raises(ValueError, match='binary'):
+        assemble_mod([source], candidate, tmp_path / 'soft', edited_mesh_mask=bad, **common)
+    report = assemble_mod([source], candidate, tmp_path / 'valid', edited_mesh_mask=mesh, **common)
+    target = tmp_path / 'valid' / report['bundle']
+    decoded = remap.read_inputs([target])
+    assert decoded.textures['page'].tobytes() == candidate.tobytes()
+    assert decoded.textures['other'].tobytes() == original.textures['other'].tobytes()
+    assert decoded.atlases == original.atlases and decoded.skeletons == original.skeletons
+    assert report['texture_format'] == 4 and Bundle.check_crc_match(target)
+    assert source.read_bytes() == before
+    common['projected'] = Assembly(candidate, {'edited_mesh_mask': mesh})
+    assemble_mod([source], candidate, tmp_path / 'report-mask', **common)
+
+
+def test_generated_alpha_mask_does_not_bypass_official_region_check(tmp_path):
+    from ba_modding_toolkit.refine_assembly import Assembly
+    text = atlas_text([('page.png', (20, 18), [('body', -1, (4, 3), (6, 4), (6, 4), (0, 0), 0)])])
+    source = write_bundle(tmp_path / 'official' / NAME, {'hero.atlas': text}, {'page': page()})
+    candidate = remap.read_inputs([source]).textures['page'].copy()
+    candidate.putpixel((0, 0), (0, 0, 0, 255))
+    with pytest.raises(ValueError, match='outside official regions'):
+        assemble_mod([source], candidate, tmp_path / 'invalid', atlas_name='hero.atlas', page_name='page.png',
+                     projected=Assembly(candidate, {}), allow_generated_alpha=True,
+                     edited_mesh_mask=Image.new('L', candidate.size, 255))
