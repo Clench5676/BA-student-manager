@@ -1241,7 +1241,24 @@ remain for owner UAT; Windows is not natively reviewed.
 - Status: Funnel (2026-10-27): idea being refined with the owner; not designed, not scheduled.
 - Experiment report ready for owner review: [report and local image inventory](research/bl056-experiment.md).
 - Pass-through assembly implemented; test mods built for owner review (2026-10-27; K4 engine, no UI integration).
-- Composite generation and projection implemented; R1 and S2 test mods built for owner review
+- Composite generation and projection implemented; R1 and S2 test mods built for owner review (2026-10-27; K5 engine,
+  no UI integration).
+- Owner review of the K5 test mods (2026-10-27): halos must be masked and never modified. Joins still show a
+  boundary (the waist, between the jersey and the shorts). Lead's check: the generated composite has no seam there;
+  cutting it back created one, because edited texels faded back to official colour near every part boundary and the
+  lower part's texels under the upper part's soft edge kept their official colour.
+- Owner direction (2026-10-27): join the parts first, let the model edit the joined character, then cut the result
+  apart along the part boundaries. No dispatch until the revised method is settled ("shit in, shit out").
+- Revised method (lead, 2026-10-27), each stage gated, a failed gate stops the run:
+  1. pose as the game shows it (idle and expression animations, face deforms included), with masked parts removed:
+     halos, non-Normal blend slots, effects;
+  2. generate on the whole character, tiling in composite space when the model's output is smaller than the frame;
+     reject moved silhouettes, lines or lettering before cutting;
+  3. cut with cover fill: every drawn texel of an unmasked part, visible or covered, takes the edited colour at its
+     composite position, with no fade to official colour at joins; official alpha; bleed refilled;
+  4. edit each other expression's face with the base pass as fixed context and cut only its slot;
+  5. re-render the packed mod for every expression and idle frames: masked, untouched and alpha bytes identical, and no
+     error spike in the join bands, before the owner sees it.
 - Owner review of the K4 test mods (2026-10-27): D1 and D3 are acceptable as generated images, but the joins are
   the problem. D3 2x shows seams at the forearms and along the waist where the restored upper body meets the
   unprocessed lower body, rough edge pixels on the forearm, and a lower body visibly blurrier than the upper body.
