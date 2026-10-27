@@ -18,7 +18,7 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | --- | --- |
 | BL-001 through BL-008 | Included in the published 0.5.0 baseline |
 | BL-009 through BL-011 | Accepted by the owner (2026-10-27); Windows not reviewed |
-| BL-012 | Implemented; acceptance on the lead's evidence pending (not judgeable by use) |
+| BL-012 | Accepted by the owner on the lead's evidence (2026-10-27) |
 | BL-015 | Initial photography feature accepted by the owner; later requirements are separate entries |
 | BL-022 through BL-024, BL-028, BL-029 | Accepted by the owner (2026-10-27); Windows not reviewed |
 | BL-025 through BL-027 | Implemented; Windows-only, owner Windows UAT later |
@@ -37,10 +37,10 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-053 | Accepted by the owner on macOS (alpha.7); Windows not reviewed |
 | BL-046 | Closed by the owner without UAT (CLI-only) |
 | BL-048 | Accepted: CLI no longer built, installed or released |
-| BL-020 | Implemented; owner review before the 0.6.0 release. Exact-release notes and empty-body link fallback. |
-| BL-021 | Implemented; owner review before the 0.6.0 release. Tour framework and Settings replay; published registry empty, 0.6.0 draft awaiting owner review. |
+| BL-020 | Implemented; owner review through a prerelease-only simulated update prompt |
+| BL-021 | Implemented; revised 0.6.0 tour goes into the next prerelease for review; stable needs the owner's final OK |
 | BL-013, BL-019, BL-030 | Planned, not implemented |
-| BL-054 | Requested; design not started |
+| BL-054 | Requested; scheduled for the next development cycle |
 | BL-014 | Candidate, not scheduled |
 | BL-016 through BL-018 | Deferred |
 

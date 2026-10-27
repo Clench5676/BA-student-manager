@@ -302,7 +302,7 @@ The existing native line widget and formation-selection palette supply its artwo
 
 ## BL-012: Integrate upstream CAB discovery improvements
 
-- Status: Implemented; in the local alpha builds. The owner cannot judge it by use (2026-10-27); acceptance on the lead's evidence (official-file tests and a discovery timing comparison) pending.
+- Status: Accepted by the owner on the lead's evidence (2026-10-27): positive change.
 - History: First integrated into local 0.5.1-alpha.1; retained in the current review build.
 - Requested: 2026-10-25.
 
@@ -333,6 +333,14 @@ identical output hashes before and after integration. Persistent metadata has a 
 measurements must be reported separately rather than presented as universal cold-start improvements.
 The integrated alpha.1 regression passed 2,855 Python tests (24 skipped) and 1,340 JavaScript tests. The local macOS
 package passed version/resource and compiled-server startup checks; owner visual acceptance remains pending.
+
+Acceptance evidence (2026-10-27): the owner accepts if the change is positive. `tests/test_cab_discovery.py` and
+`tests/test_cli_cab_cache.py` pass with the official development view (35 tests): the referring bundle's group is
+searched first and the search stops once every CAB is found; prolog resources come before the remaining scan; CAB
+metadata is reused across sessions without rereading headers; large bundles are no longer cut off, so a needed
+dependency is not silently missed; the CRC-correction tail no longer shifts the index; replaced, removed and cleared
+files invalidate mappings; nothing outside the game folder is read. The full suite shows no regression. No timing
+benchmark was run.
 
 ## BL-013: Drag-and-drop asset packing screen
 
@@ -484,7 +492,7 @@ externally changed files; stale snapshots and cancellation; export-only runs; an
 
 ## BL-020: Release notes in update detection
 
-- Status: Implemented; the owner reviews it before the 0.6.0 release (decision 2026-10-27, replacing the earlier deferral).
+- Status: Implemented; owner decision (2026-10-27): review through a simulated update prompt in the next prerelease, never in a stable build.
 - Note: The detected tag's GitHub body opens in a scrollable notice popup, with a release-page fallback for empty notes.
 - Requested: 2026-10-25.
 
@@ -494,9 +502,13 @@ download or installation. For future stable releases, the agent drafts release n
 validation, and the owner reviews their wording before publication. Record this release requirement in the
 repository's agent guidance; do not publish an empty stable-release description.
 
+Owner decision (2026-10-27): the next prerelease includes a simulated update prompt so the owner can review it: the
+three-button dialog, the Release Notes view and the link fallback when the notes are empty. It is clearly marked as a
+simulation, cannot install anything and must not exist in a stable build.
+
 ## BL-021: First-launch new-version feature tour
 
-- Status: Implemented; the owner reviews it before the 0.6.0 release (decision 2026-10-27, replacing the earlier deferral).
+- Status: Implemented; owner decision (2026-10-27): the revised 0.6.0 tour ships in the next prerelease for review; stable needs the owner's final OK.
 - Owner review of the 0.6.0 draft (2026-10-26): merge the photography and shared-gallery pages into one student
   thumbnail page (`学生详情全屏后增加大头照拍摄功能`), drop the release-notes page; publication awaits the owner's OK
   on the revised copy.
@@ -515,6 +527,11 @@ the tour. Do not introduce new startup scans, rendering work or network dependen
 Remember presentation per user-data profile/version, avoid duplicate prompts on restarts/reinstalls/downgrades,
 and handle missing images or absent tour content without blocking launch. Release notes and CHANGELOG remain
 separate, complementary views of the same actual release history.
+
+Owner review of the 0.6.0 tour copy (2026-10-27): page 1 stays as it is. Page 2: title `缩放学生大厅`, body
+`滚轮、捏合放大立绘场景，平移查看` (the clause about the saved layout is dropped); the other locales follow. Owner decision:
+put the tour into the next prerelease (Settings tour entry and the first launch after updating) for review; a stable
+build shows it only after the owner's final OK.
 
 ## BL-022: Shared student galleries, generated defaults and photo export
 
@@ -1110,7 +1127,7 @@ skin keeps the existing warning.
 
 ## BL-054: Mod switch outside the App
 
-- Status: Requested (2026-10-27); design not started.
+- Status: Requested (2026-10-27); scheduled by the owner for the next development cycle; design not started.
 - Requested: 2026-10-27.
 - Related: the top bar's Enable Mods switch, BL-037 close handling.
 
