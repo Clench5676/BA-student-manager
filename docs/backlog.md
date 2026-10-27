@@ -538,6 +538,10 @@ fills almost the whole window; it is far too large for two short lines. Owner de
 ordinary message popups (for example the delete confirmation), fitted to the text; title, page counter and
 Previous/Next stay, with their button size unchanged.
 
+Owner review of 0.6.0-alpha.10 on macOS (2026-10-27): Settings' New Features row shows "Not set" (`settings.notSet`)
+as its value. Lead's diagnosis: the row uses `valueRow` (`settings.js`), which prints Not set for an empty value; the
+row has no value to show.
+
 ## BL-022: Shared student galleries, generated defaults and photo export
 
 - Status: Accepted by the owner (2026-10-27); Windows not reviewed.
@@ -1145,3 +1149,15 @@ behaviour while the App is running or a game writer is active, and what the noti
 Owner decision (2026-10-27): not in 0.6.0. The design (M1 generated applet on macOS, W1 `.lnk` on Windows, command
 forwarding to a running App, a window-less transient mode with a small result window; estimated by the designer at
 8-12 engineering days) awaits the owner's research; no feasibility build either.
+
+## BL-055: First launch of 0.6.0-alpha.10 hangs on macOS
+
+- Status: Open (owner finding, 2026-10-27); diagnosis not started.
+- Requested: 2026-10-27.
+- Evidence: macOS hang report from the owner (`error report.txt` in the repository root, git-ignored, never commit
+  it); the App process section is extracted to the lead's private brief folder.
+
+The first launch after installing alpha.10 froze (macOS "hang" event, about 33 s unresponsive, 32 s after start).
+Lead's first reading: the main thread waits on a condition variable inside `main` while pywebview's `loaded` handler
+thread is in `webui/main.py` `_run_window.on_loaded` -> `native.watch_drops` -> pywebview DOM event registration
+(`webview.dom.event.__iadd__` -> `element._exists`), which needs the main thread; a possible deadlock. To confirm.

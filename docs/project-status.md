@@ -38,9 +38,10 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-046 | Closed by the owner without UAT (CLI-only) |
 | BL-048 | Accepted: CLI no longer built, installed or released |
 | BL-020 | Accepted by the owner on macOS (alpha.9, simulated prompt); Windows not reviewed |
-| BL-021 | Implemented for local review; owner UAT/visual acceptance pending. Text-only tours share the longest localized page's message size; illustration geometry is preserved. |
+| BL-021 | Popup size fixed in alpha.10 (review pending); Settings row shows Not set (open) |
 | BL-013, BL-019, BL-030 | Planned, not implemented |
 | BL-054 | Deferred by the owner for research; design proposal on file |
+| BL-055 | Open: first launch of alpha.10 hangs on macOS |
 | BL-014 | Candidate, not scheduled |
 | BL-016 through BL-018 | Deferred |
 
