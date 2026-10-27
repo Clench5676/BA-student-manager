@@ -141,3 +141,89 @@ def test_prompt_v2_keeps_v1_and_forbids_wording_at_fill_time():
         for forbidden in ('transparent','restore','redesign'):
             with pytest.raises(ValueError,match='Forbidden'):
                 prompt('detail-crisp-lines',version=version,**{**fields,'preserve':forbidden})
+
+
+def test_outline_matte_preserves_neutral_interior_and_softens_only_outer_band():
+    from ba_modding_toolkit.refine_stitch import frame_background
+    official=Image.new('RGBA',(128,128))
+    ImageDraw.Draw(official).rectangle((16,16,111,111),fill=(180,180,180,255))
+    c=np.asarray(flatten(official,(255,0,255))).copy()
+    c[50:60,50:60]=(142,140,143);c[65:75,65:75]=(69,67,98)
+    c[30:90,15]=(195,90,195)
+    out,_=key_image(Image.fromarray(c),official,(255,0,255))
+    a=np.asarray(out)
+    for box in ((50,50,60,60),(65,65,75,75)):
+        l,t,r,b=box
+        assert (a[t:b,l:r,3] == 255).all()
+        assert np.array_equal(a[t:b,l:r,:3],c[t:b,l:r])
+    key=np.max(abs(c.astype(float)-(255,0,255)),axis=-1)<=32
+    connected=frame_background(key)
+    allowed=np.asarray(Image.fromarray(np.uint8(connected)*255).filter(ImageFilter.MaxFilter(7)))>0
+    assert not (((a[...,3]>0)&(a[...,3]<255))&~allowed).any()
+    soft=(a[...,3]>0)&(a[...,3]<255)&(a[...,3]>=128)
+    # No channel may lose more than the key's actual (1-alpha) contribution.
+    removed=c.astype(float)-a[...,:3]
+    assert (removed[soft,0] <= 255-a[soft,3]+1).all()
+    assert (removed[soft,2] <= 255-a[soft,3]+1).all()
+    assert np.array_equal(a[soft,1],c[soft,1])
+
+
+def test_frame_background_uses_connectivity_not_neutral_colour():
+    from ba_modding_toolkit.refine_stitch import frame_background
+    mask=np.ones((20,20),bool);mask[3:17,3:17]=False;mask[8:12,8:12]=True
+    connected=frame_background(mask)
+    assert connected[0,0] and not connected[9,9]
+    mask[0:9,9]=True
+    assert frame_background(mask)[9,9]
+
+
+def test_rigid_subpixel_estimator_corrects_shift_and_retains_identity():
+    from ba_modding_toolkit.refine_stitch import estimate_translation,translate_rgb
+    a=np.asarray(drawing())[...,:3].astype(np.float32)
+    assert np.array_equal(translate_rgb(a,(0,0)),a)
+    b=translate_rgb(a,(.75,-.5),fill=(130,150,170))
+    visible=np.ones(a.shape[:2],bool)
+    estimated=estimate_translation(a,b,visible)
+    assert np.linalg.norm(np.array(estimated['shift_native'])-(-.75,.5)) < .4
+    corrected=translate_rgb(b,estimated['shift_native'],fill=(130,150,170))
+    assert np.linalg.norm(estimate_translation(a,corrected,visible)['shift_native']) <= .5
+
+
+def test_nearest_colour_accepts_existing_dark_ink_rejects_green_outlier():
+    from ba_modding_toolkit.refine_stitch import nearest_colour
+    rgb=np.full((24,24,3),220,np.float32);rgb[10,10]=(30,30,30);rgb[10,14]=(30,30,30)
+    seeds=np.zeros((24,24),bool);seeds[10,11]=True;seeds[10,14]=True
+    query=np.zeros((24,24),bool);query[10,10]=True
+    closest,matched=nearest_colour(rgb,seeds,query)
+    assert matched[10,10] and np.array_equal(closest[10,10],rgb[10,10])
+    rgb[10,10]=(20,220,20)
+    closest,_=nearest_colour(rgb,seeds,query)
+    assert np.linalg.norm(closest[10,10]-rgb[10,10]) > 48
+
+
+def test_contour_rate_accepts_isolated_junctions_rejects_sustained_double_line():
+    length=1000.
+    assert 20/length <= InputParameters().contour_rate
+    a=np.full((48,80,3),180,np.float32);b=a.copy();a[18]=0;b[22]=0
+    count=double_edge_count(a,b,(a+b)/2,np.ones((48,80),bool))
+    assert count/80 > InputParameters().contour_rate
+
+
+def test_unpaired_outline_rate_accepts_sparse_pixels_rejects_missing_interior_run():
+    a=np.zeros((600,600,4),np.uint8);a[...,:3]=(100,120,150);a[20:580,20:580,3]=255
+    reference=Image.fromarray(a.copy());a[2,2,3]=a[4,2,3]=128
+    sparse=fringe_gate(Image.fromarray(a),(255,0,255),reference=reference)
+    assert sparse['unpaired_changed_pixels']==2 and sparse['passed']
+    a[100:180,2,3]=128
+    failed=fringe_gate(Image.fromarray(a),(255,0,255),reference=reference)
+    assert failed['unpaired_per_outline_px'] > .001 and not failed['passed']
+
+
+def test_complement_gate_accepts_palette_interpolation_rejects_new_green():
+    a=np.zeros((48,48,4),np.uint8);a[...,:3]=(100,120,150);a[8:40,8:40,3]=255
+    a[8:40,8:16,:3]=(50,150,180);a[8:40,16:24,:3]=(130,130,100)
+    reference=Image.fromarray(a.copy());a[8:40,7]=(90,140,140,150)
+    assert fringe_gate(Image.fromarray(a),(255,0,255),reference=reference)['passed']
+    a[8:40,7]=(20,240,30,150)
+    fault=fringe_gate(Image.fromarray(a),(255,0,255),reference=reference)
+    assert not fault['passed'] and fault['excess_complement_share'] > .02
