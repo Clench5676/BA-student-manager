@@ -255,7 +255,7 @@ in the program's distributable files.
 
 ## BL-009: Chinese Hall captions and non-editing scene zoom
 
-- Status: Implemented and included in current local 0.6.0-alpha.1 review. Not released.
+- Status: Accepted by the owner (2026-10-27); Windows not reviewed.
 - History: First integrated into local 0.5.1-alpha.1; retained in the current review build.
 - Requested: 2026-10-24.
 
@@ -281,7 +281,7 @@ for all 42 ordinary lines. Local package visual acceptance remains with the owne
 
 ## BL-010: Default-size minimum for Hall scene zoom
 
-- Status: Implemented and included in current local 0.6.0-alpha.1 review. Not released.
+- Status: Accepted by the owner (2026-10-27); Windows not reviewed.
 - History: First integrated into local 0.5.1-alpha.1; retained in the current review build.
 - Requested: 2026-10-24.
 
@@ -291,7 +291,7 @@ Mouse-wheel and touchpad zoom-out gestures must not shrink the scene below that 
 
 ## BL-011: Thin solid memorial-queue insertion line
 
-- Status: Implemented and included in current local 0.6.0-alpha.1 review. Not released.
+- Status: Accepted by the owner (2026-10-27); Windows not reviewed.
 - History: First integrated into local 0.5.1-alpha.1; retained in the current review build.
 - Requested: 2026-10-24.
 
@@ -302,7 +302,7 @@ The existing native line widget and formation-selection palette supply its artwo
 
 ## BL-012: Integrate upstream CAB discovery improvements
 
-- Status: Implemented and included in current local 0.6.0-alpha.1 review. Not released.
+- Status: Implemented; in the local alpha builds. The owner cannot judge it by use (2026-10-27); acceptance on the lead's evidence (official-file tests and a discovery timing comparison) pending.
 - History: First integrated into local 0.5.1-alpha.1; retained in the current review build.
 - Requested: 2026-10-25.
 
@@ -484,7 +484,7 @@ externally changed files; stale snapshots and cancellation; export-only runs; an
 
 ## BL-020: Release notes in update detection
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending. Owner review deferred until after the 0.6.0 release (2026-10-26).
+- Status: Implemented; the owner reviews it before the 0.6.0 release (decision 2026-10-27, replacing the earlier deferral).
 - Note: The detected tag's GitHub body opens in a scrollable notice popup, with a release-page fallback for empty notes.
 - Requested: 2026-10-25.
 
@@ -496,7 +496,7 @@ repository's agent guidance; do not publish an empty stable-release description.
 
 ## BL-021: First-launch new-version feature tour
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending. Owner review deferred until after the 0.6.0 release (2026-10-26).
+- Status: Implemented; the owner reviews it before the 0.6.0 release (decision 2026-10-27, replacing the earlier deferral).
 - Owner review of the 0.6.0 draft (2026-10-26): merge the photography and shared-gallery pages into one student
   thumbnail page (`学生详情全屏后增加大头照拍摄功能`), drop the release-notes page; publication awaits the owner's OK
   on the revised copy.
@@ -518,7 +518,7 @@ separate, complementary views of the same actual release history.
 
 ## BL-022: Shared student galleries, generated defaults and photo export
 
-- Status: Implemented for local 0.6.0-alpha.1 review; owner UAT/visual acceptance pending.
+- Status: Accepted by the owner (2026-10-27); Windows not reviewed.
 - Requested: 2026-10-26.
 - Details: [Gallery semantics and acceptance](feedback-2026-10-26.md#bl-022-detail-shared-gallery-and-default-sources).
 - Later requirement: BL-036 supersedes the original blanket deletion protection for App-selected and generated
@@ -536,7 +536,7 @@ photos. No automatic game write follows merely from browsing the gallery or reso
 
 ## BL-023: Faithful photography occlusion guide and save readiness
 
-- Status: Implemented for local 0.6.0-alpha.1 review; owner UAT/visual acceptance pending.
+- Status: Accepted by the owner (2026-10-27); Windows not reviewed.
 - Requested: 2026-10-26.
 - Details: [Camera requirements](feedback-2026-10-26.md#bl-023-detail-camera-guides-placement-and-save-readiness).
 - Owner review: the occlusion button is too wide and the frame-not-ready modal still occurs. Follow-ups BL-032
@@ -550,7 +550,7 @@ pixels and durable publication, prevent duplicate/stale work, and retain meaning
 
 ## BL-024: Frameless desktop shell and macOS menus
 
-- Status: Implemented for local 0.6.0-alpha.1 review; owner UAT/visual acceptance pending.
+- Status: Accepted by the owner (2026-10-27); Windows not reviewed.
 - Requested: 2026-10-26.
 - Details: [Desktop chrome](feedback-2026-10-26.md#bl-024-detail-native-desktop-chrome).
 - Follow-up: BL-037 requests a design for integrating genuine platform window controls into the top toolbar.
@@ -562,7 +562,7 @@ Validate actual packaged host behavior rather than relying only on a browser dev
 
 ## BL-025: Windows update location, shortcuts and companion files
 
-- Status: Targeted changes implemented for local 0.6.0-alpha.1 review; packaged Windows acceptance pending.
+- Status: Targeted changes implemented for local 0.6.0-alpha.1 review; packaged Windows acceptance pending. Windows UAT by the owner later (2026-10-27).
 - Requested: 2026-10-26.
 - Details: [Update continuity](feedback-2026-10-26.md#bl-025-detail-windows-update-continuity).
 
@@ -573,7 +573,7 @@ shortcut follows a newly named EXE or delete unrecognized neighboring files.
 
 ## BL-026: Desktop rendering seams, shadow corners and source-toolbar overflow
 
-- Status: Rendering/layout corrections implemented for local 0.6.0-alpha.1 review; packaged Windows visual acceptance pending.
+- Status: Rendering/layout corrections implemented for local 0.6.0-alpha.1 review; packaged Windows visual acceptance pending. Windows UAT by the owner later (2026-10-27).
 - Requested: 2026-10-26.
 - Evidence: Screenshots 3 through 7 in the [feedback record](feedback-2026-10-26.md#supplied-evidence-index).
 - Details: [Cross-platform checks](feedback-2026-10-26.md#bl-026-detail-cross-platform-ui-defects).
@@ -586,7 +586,7 @@ labels and normal/fullscreen views. Record actual platform coverage; owner UAT/v
 
 ## BL-027: First Windows startup failure after a 0.3-to-0.5 upgrade
 
-- Status: Targeted changes implemented for local 0.6.0-alpha.1 review; packaged Windows acceptance pending.
+- Status: Targeted changes implemented for local 0.6.0-alpha.1 review; packaged Windows acceptance pending. Windows UAT by the owner later (2026-10-27).
 - Requested: 2026-10-26.
 - Evidence: `BAMT-report-0.5.0-20261025-1309.zip`; reviewed read-only; cold first-screen layout delay recorded in the report.
 - Details: [Failure and migration investigation](feedback-2026-10-26.md#bl-027-detail-one-time-windows-upgrade-startup-failure).
@@ -602,7 +602,7 @@ does not establish a damaged migration, and exact Windows reproduction/acceptanc
 
 ## BL-028: Official Hall portraits, toolbar counts and Shiroko first-run defaults
 
-- Status: Implemented for local 0.6.0-alpha.1 review; owner UAT/visual acceptance pending.
+- Status: Accepted by the owner (2026-10-27); Windows not reviewed.
 - Requested: 2026-10-26.
 - Details: [Hall behavior](feedback-2026-10-26.md#bl-028-detail-student-hall-sources-and-initial-state).
 - Follow-up: BL-038 closes the Hall-only layout gap left by hiding Home: move Settings right and remove its divider.
@@ -615,7 +615,7 @@ reveal and handle unavailable resources gracefully without replacing an existing
 
 ## BL-029: Native gold affirmative-action buttons
 
-- Status: Official gold prefab identified and affirmative styling implemented for local review; owner visual acceptance pending.
+- Status: Accepted by the owner (2026-10-27); Windows not reviewed.
 - Requested: 2026-10-26.
 - Details: [Prefab inventory and semantics](feedback-2026-10-26.md#bl-029-detail-gold-affirmative-actions).
 - Owner review: source-picker Save is missing gold styling, while Update and Settings' Export Mod Library are
@@ -645,7 +645,7 @@ for review. This is independent of the deferred ADB UI migration (BL-016) and do
 
 ## BL-031: Light and dark Chinese README logo variants
 
-- Status: Light/dark compositions added to the Chinese README; owner visual acceptance pending.
+- Status: Accepted by the owner (2026-10-27).
 - Requested: 2026-10-26.
 - Evidence: Screenshots 1 and 2 in the [feedback record](feedback-2026-10-26.md#supplied-evidence-index).
 
@@ -655,7 +655,7 @@ branding only; keep other-language assets untouched and hand candidates to the o
 
 ## BL-032: Compact photography occlusion control
 
-- Status: Implemented for local review; owner macOS review found the English label overflowing (BL-040).
+- Status: Closed (2026-10-27): superseded by BL-040, which the owner accepted.
 - Requested: 2026-10-26, following local alpha.1 review.
 - Parent: BL-023.
 
@@ -1107,3 +1107,15 @@ applied to any target. The delete warning for photos in use elsewhere stays as i
 Owner review of 0.6.0-alpha.6 on macOS (2026-10-26): Applied per skin accepted. The delete warning for a photo applied to another
 skin must say so: zh-CN `正在被另一换皮使用` (owner wording), translated in the other locales; a photo applied to the shown
 skin keeps the existing warning.
+
+## BL-054: Mod switch outside the App
+
+- Status: Requested (2026-10-27); design not started.
+- Requested: 2026-10-27.
+- Related: the top bar's Enable Mods switch, BL-037 close handling.
+
+Settings gets a button to generate an out-of-App Mod switch ("生成APP外MOD开关"). It creates a "MOD开关" file in a
+folder; the user can put a shortcut to it on the desktop. Opening that file has the same effect as the App's Enable
+Mods switch and shows a short, plain UI notice of the result. Open design questions before implementation: where the
+file goes on each platform (packaged macOS builds cannot write next to the app), the file type on macOS and Windows,
+behaviour while the App is running or a game writer is active, and what the notice looks like.

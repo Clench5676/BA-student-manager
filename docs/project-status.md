@@ -8,7 +8,7 @@ As of 2026-10-26. Verify the actual branch, working tree and `pyproject.toml` ve
 | Branch | State |
 | --- | --- |
 | `main` | Local version `0.6.0-alpha.8`: the published 0.5.0 baseline, the upstream syncs after it, the 0.6.0-alpha.1 and alpha.2 review work, BL-020, BL-021, BL-040, BL-041, BL-043, BL-042, BL-044, BL-045, BL-046, BL-047, BL-048 and the alpha.5 to alpha.7 review fixes (BL-037, BL-044, BL-047, BL-049 through BL-053). Not pushed. |
-| `codex/whats-new` | BL-020 and BL-021, merged into `main`; owner review deferred until after the 0.6.0 release. |
+| `codex/whats-new` | BL-020 and BL-021, merged into `main`; owner review before the 0.6.0 release. |
 
 The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since 0.5.0.
 
@@ -17,11 +17,14 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | Items | State |
 | --- | --- |
 | BL-001 through BL-008 | Included in the published 0.5.0 baseline |
-| BL-009 through BL-012 | Implemented; in the local alpha builds |
+| BL-009 through BL-011 | Accepted by the owner (2026-10-27); Windows not reviewed |
+| BL-012 | Implemented; acceptance on the lead's evidence pending (not judgeable by use) |
 | BL-015 | Initial photography feature accepted by the owner; later requirements are separate entries |
-| BL-022 through BL-029, BL-031 | Implemented for alpha.1; later owner findings are separate entries |
+| BL-022 through BL-024, BL-028, BL-029 | Accepted by the owner (2026-10-27); Windows not reviewed |
+| BL-025 through BL-027 | Implemented; Windows-only, owner Windows UAT later |
+| BL-031 | Accepted by the owner (2026-10-27) |
 | BL-033 through BL-036, BL-038, BL-039 | Accepted by the owner on macOS (alpha.2); Windows not reviewed |
-| BL-032 | Implemented for alpha.2; the English label overflow continues as BL-040 |
+| BL-032 | Closed: superseded by BL-040 |
 | BL-037 | Accepted by the owner on macOS (alpha.7); Windows not reviewed |
 | BL-040, BL-041, BL-043, BL-045 | Accepted by the owner on macOS (alpha.3); Windows not reviewed |
 | BL-042 | Accepted by the owner on macOS (alpha.4) |
@@ -34,9 +37,10 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-053 | Accepted by the owner on macOS (alpha.7); Windows not reviewed |
 | BL-046 | Closed by the owner without UAT (CLI-only) |
 | BL-048 | Accepted: CLI no longer built, installed or released |
-| BL-020 | Implemented for local review; owner UAT/visual acceptance pending. Exact-release notes and empty-body link fallback. |
-| BL-021 | Implemented for local review; owner UAT/visual acceptance pending. Tour framework and Settings replay; published registry empty, 0.6.0 draft awaiting owner review. |
+| BL-020 | Implemented; owner review before the 0.6.0 release. Exact-release notes and empty-body link fallback. |
+| BL-021 | Implemented; owner review before the 0.6.0 release. Tour framework and Settings replay; published registry empty, 0.6.0 draft awaiting owner review. |
 | BL-013, BL-019, BL-030 | Planned, not implemented |
+| BL-054 | Requested; design not started |
 | BL-014 | Candidate, not scheduled |
 | BL-016 through BL-018 | Deferred |
 
