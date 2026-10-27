@@ -1270,8 +1270,8 @@ remain for owner UAT; Windows is not natively reviewed.
   structure is the simplest class (one page, one face slot, an idle that moves the whole body).
 - Join, generate, cut implemented in the engine; R1b reproduced (2026-10-27; K6, no UI integration).
 - Generation inputs, crop merge and prompt templates implemented; no generation yet (2026-10-27; K7).
-- K9 corrected keying, rigid alignment and scaled gates pass (2026-10-27); unchanged K6 cut rejects
-  R1c at the waist join (1.256). No mod or import; see experiment section 14 for the cut-error overlay.
+- K9 key-direction rim cleanup and calibrated fringe gate implemented (2026-10-27); K6 waist ratio
+  improves to 1.078 but still fails. No mod or import; see section 14 for silhouette and error sheets.
 - R1c stopped after one retry (2026-10-27; K8): movement, overlap RMSE and crop-boundary gates still fail;
   no cut or mod was built. See experiment section 13 for the four-crop run and merge/key artifacts.
 - Owner review of the K4 test mods (2026-10-27): D1 and D3 are acceptable as generated images, but the joins are
