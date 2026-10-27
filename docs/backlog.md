@@ -1265,3 +1265,19 @@ Questions to refine before a design:
 - Reference choice for style repair, and how far the model may change a portrait.
 - Development: the dev store's official images must not be uploaded or shared, so experiments with cloud models on
   official art need an explicit owner decision (for example the owner runs them on their own install).
+
+Owner decisions (2026-10-27):
+
+- Scope: every portrait type, Spine atlases included. Only the final look matters to the owner; the App handles atlas
+  regions, padding, alpha, seams and size limits transparently (pass-through processing).
+- Model: GPT Image only for now. Lead's research (2026-10-27, to verify against OpenAI's own API reference before a
+  design): OpenAI's Images API edit endpoint (`/v1/images/edits`) takes several input images as references;
+  third-party documentation for `gpt-image-2` (released April 2026) gives 10 to 16 input images and outputs up to 2K
+  or 4K, and they disagree. The API bills an OpenAI API key, separate from a ChatGPT plan. Codex CLI reportedly has
+  built-in `gpt-image-2` generation that counts against the ChatGPT plan's Codex usage, or bills the API when an API
+  key is configured; `codex --image` passes input images. Whether `codex exec` can generate images non-interactively
+  is unverified.
+- Review and apply: before/after comparison, partial acceptance, applied as a Mod through the library and switch.
+- References for style repair: at first only other portraits from the game, of the same or another character.
+- Development: official images from the dev store may be sent to AI services for development; they must never be
+  published on UGC platforms, committed or shipped.
