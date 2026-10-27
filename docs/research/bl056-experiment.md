@@ -1162,3 +1162,209 @@ context window; and no automatic text, identity or style recognition. Hoshino ha
 The owner must visually accept line crispness, lettering, expression character, backdrop removal and
 fringes, crop transitions, consistency between generated expressions and the head, animation reveals and
 the final appearance in the game. No numerical control here establishes those visual results.
+
+## 13. K8: R1c rejected before cutting after one retry
+
+Four base crops were generated through the fixed K7 input plan, followed by one gate-triggered head
+retry. Both merge attempts raised `InputGateError`. Head and lower-body line-map movement, all three
+overlap comparisons, and the crop-boundary ratio remain above their limits. The run stopped before
+cutting: **no R1c pages, mod, packed bundle or import result exist**. The owner-review comparison uses
+the rejected merged target and labels it accordingly. R1c has no visual acceptance.
+
+### Pose, frame and four-crop plan
+
+The official portrait is `shiroko_ridingsuit_spr`, read only from the verified development view. Its
+atlas, skeleton and decoded page match the supplied K6 inputs. The engine's public pose listing supplied
+`base`: `Idle_01` at time zero on track 0 and `00` at time zero on track 1. All base attachment identities
+and vertices match K5's setup geometry exactly, with maximum vertex difference 0.
+
+K7's default unmasked frame plans three crops on a 1513 x 1952 master. K8 uses K5's expression frame,
+**(-666, -791, 978, 1420)**, giving **1513 x 2035** and four base crops. The initial run driver incorrectly
+treated K7's three-crop fact as a requirement and paused. The owner clarified that point and approved
+four generations plus at most one gate-triggered retry. The existing four-crop plan was then used as
+written, without changing engine defaults, parameters, crops or templates.
+
+The master density is **2**; the selected key is **RGB(255, 0, 255)**. Masked slots are `halo1` through
+`halo4`; switching slots are `00_default` and `eyeclose`. Planning used nine listed poses to supply the
+switching-slot metadata, and only the four base crops were sent for generation.
+
+| Crop id | Role | Master box, half-open | Density | Input size |
+| --- | --- | --- | ---: | --- |
+| crop-0-0 | head | 338, 176, 756, 559 | 6.269124x | 1311 x 1201 |
+| crop-0-1 | body | 0, 0, 1513, 721 | 2.401636x | 1817 x 866 |
+| crop-0-2 | body | 0, 657, 1513, 1378 | 2.401636x | 1817 x 866 |
+| crop-0-3 | body | 0, 1314, 1513, 2035 | 2.401636x | 1817 x 866 |
+
+K5's six boxed expression targets remain the supplied `02_respond`, `03_smile`, `04_embarrassed`,
+`05_serious`, `06_depressed` and `eyeclose` generated crops, with their original setup geometries and
+boxes. The base frame equals their saved frame exactly, and the official base render matches the
+saved K5 official render byte for byte. The R1b page and all seven R1b renders also match the K6 golden
+references byte for byte. No target box was shifted, warped or resampled. The expressions were not cut,
+because the base generation did not pass its gates.
+
+### Filled prompts, verbatim
+
+Every call used the built-in image generator with an opaque background request. Each crop's input PNG
+was its only referenced image. The head retry used the original head input and identical prompt.
+The following strings are copied verbatim from the plan; repeated strings are mapped to all their calls.
+The run log also records the filled prompt separately for each of the five calls.
+
+`detail-crisp-lines` v1, `crop-0-0`, attempts 1 and 2:
+
+```text
+Use case: precise-object-edit. Edit target: image 1, the supplied head crop in pose base, at 1311 x 1201. Remove ONLY blur and compression softness from the existing drawing; re-render the existing lines crisply at this exact size. Keep every line on its original path, with its original width and shape. Preserve exactly all existing features and their exact coordinates. Preserve all lettering verbatim, colours, shading, outlines, object positions, expression, pose, framing, aspect ratio and crop. Invent nothing. The plain RGB(255, 0, 255) backdrop must stay flat and unchanged, including every gap. Repeat: keep the same lines, lettering, colours, framing, aspect ratio and crop; only remove blur and compression softness. Return the same complete opaque image at the supplied size.
+```
+
+`detail-crisp-lines` v1, `crop-0-1`, `crop-0-2` and `crop-0-3`, attempt 1 each:
+
+```text
+Use case: precise-object-edit. Edit target: image 1, the supplied body crop in pose base, at 1817 x 866. Remove ONLY blur and compression softness from the existing drawing; re-render the existing lines crisply at this exact size. Keep every line on its original path, with its original width and shape. Preserve exactly all existing features and their exact coordinates. Preserve all lettering verbatim, colours, shading, outlines, object positions, expression, pose, framing, aspect ratio and crop. Invent nothing. The plain RGB(255, 0, 255) backdrop must stay flat and unchanged, including every gap. Repeat: keep the same lines, lettering, colours, framing, aspect ratio and crop; only remove blur and compression softness. Return the same complete opaque image at the supplied size.
+```
+
+### Generation and return validation
+
+Calls ran sequentially. Wall time includes service overhead and is not isolated backend latency.
+All five returns are opaque RGB PNGs. Aspect error must be at most 0.5%; pixel-count error relative
+to the 1,573,000 budget must be at most 15%. Actual return grids were passed unchanged to the engine.
+
+| Crop / attempt | Returned size | Wall seconds | Aspect error | Pixel-budget error | Return contract |
+| --- | --- | ---: | ---: | ---: | --- |
+| crop-0-0 / 1 | 1310 x 1201 | 38.579 | 0.076278% | 0.019708% | Pass |
+| crop-0-1 / 1 | 1815 x 866 | 25.354 | 0.110072% | 0.076923% | Pass |
+| crop-0-2 / 1 | 1816 x 866 | 52.845 | 0.055036% | 0.021869% | Pass |
+| crop-0-3 / 1 | 1816 x 866 | 35.261 | 0.055036% | 0.021869% | Pass |
+| crop-0-0 / 2 | 1310 x 1200 | 26.350 | 0.006992% | 0.063573% | Pass |
+
+Total generation wall time: **178.389 seconds**. Budget used: **4 initial calls + 1 retry**.
+
+The first head had the largest individually rejected line-offset p95, so the single retry was assigned
+to it. Other failed crops and overlaps remained explicit; they were not silently replaced or corrected.
+R1b used no new generation. Its inherited base return was 1081 x 1455 in 52.350 seconds; inherited
+expression sizes and timings remain in section 9.
+
+Five automatic image copies were created. Their complete local paths are listed in the delivery message
+and the external run log for cleanup. No image data or private paths are included in tracked files.
+
+### Merge, key and movement gates
+
+Both passes called `merge_inputs` with `base_only=True`, defaults unchanged, and diagnostic mode disabled.
+The engine checks the actual returned grids, keys each crop against its official prior, measures
+movement, matches DC colour offsets, merges residuals with head priority, keys the merged result and
+checks the crop-boundary band before raising. The saved failed targets are review evidence only.
+
+Movement limits: silhouette IoU at least **0.96**, line-offset p95 at most **3 native pixels**.
+Identity-key alpha limits: RMSE at most **1/255**, p99 at most **3/255**. The key figures below are the
+identity calibration check; they do not measure actual edited-matte accuracy against ground truth.
+
+| Crop / attempt | Silhouette IoU | Line-offset p95 | Identity key RMSE / p99 / max, 0-255 units | Movement gate |
+| --- | ---: | ---: | --- | --- |
+| crop-0-0 / 1 | 0.994866 | 8.454132 | 0 / 0 / 0 | Reject |
+| crop-0-1 / 1 | 0.989358 | 0.832766 | 0 / 0 / 0 | Pass |
+| crop-0-2 / 1 | 0.989480 | 0.832766 | 0 / 0 / 0 | Pass |
+| crop-0-3 / 1 | 0.975497 | 3.331062 | 0 / 0 / 0 | Reject |
+| crop-0-0 / 2 | 0.994811 | 8.294621 | 0 / 0 / 0 | Reject |
+
+All identity-key checks pass. Overlap RGB RMSE after colour matching must be at most **2/255**:
+
+| Overlap | First pass | After head retry | Gate |
+| --- | ---: | ---: | --- |
+| crop-0-0 / crop-0-1 | 22.676611 | 22.793428 | Reject |
+| crop-0-1 / crop-0-2 | 43.755070 | 43.755070 | Reject |
+| crop-0-2 / crop-0-3 | 21.662359 | 21.662357 | Reject |
+
+The crop-boundary gate compares its band error to gradient-matched interior error; ratio limit **1**:
+
+| Pass | Band pixels | Band RGB RMSE | Matched interior RGB RMSE | Ratio | Gate |
+| --- | ---: | ---: | ---: | ---: | --- |
+| First | 22586 | 26.824579 | 23.613843 | 1.135968 | Reject |
+| After retry | 22586 | 26.807765 | 23.606634 | 1.135603 | Reject |
+
+Both exception traces end at the unchanged merge gate:
+
+```text
+refine_inputs.py:451, merge_inputs
+InputGateError: Input gates failed: crop-0-0:movement, crop-0-3:movement,
+overlap:0:1, overlap:1:2, overlap:2:3, base:crop-boundary
+```
+
+There was no unexpected exception inside the engine and no gate override. The line-map metric detects
+changed line structure or contrast as well as displacement; its reported distance alone does not prove
+that every feature physically moved by that amount. The raw overlap sheets show independent generations
+with different local contours, iris treatment and shading, consistent with their large overlap errors.
+
+The before/after keying sheets also expose a pipeline concern: green specks around the chin and hair,
+and green fringes around the stem, appear in the keyed target compared with the saved opaque merge.
+The opaque merge already contains doubled or ringing contours in places. This localizes added artifacts
+to the merge/key stages as well as generation inconsistency; the exact cause was not repaired or isolated
+further in this run. Zero identity-key error does not establish the official-prior matte's adequacy for
+real edits. The stop was already required by the ordinary failed gates; no workaround was attempted.
+
+### Cut metrics and sharpness
+
+R1c's cut join gates, cut silhouette IoU, page invariants, packing checks and import checks were **not
+reached**. No cut was performed even for diagnosis. R1b values below are the saved K6 golden results,
+whose page and rendered references were verified unchanged for this comparison.
+
+| Metric | R1b | R1c |
+| --- | ---: | --- |
+| Crop-overlap / crop-boundary / K7 crop movement gates | N/A: R1b predates K7 | Failed as above |
+| Identity-key alpha RMSE / p99 / max | N/A: no keying | 0 / 0 / 0, pass for every crop |
+| Waist join band / matched-interior RGB RMSE | 9.221266 / 9.799933 | Not reached |
+| Waist join ratio | 0.940952 | Not reached |
+| Face-edge join band / matched-interior RGB RMSE | 6.478621 / 10.923400 | Not reached |
+| Face-edge join ratio | 0.593096 | Not reached |
+| Front-hair join band / matched-interior RGB RMSE | 6.590058 / 8.323697 | Not reached |
+| Front-hair join ratio | 0.791722 | Not reached |
+| Base cut silhouette IoU against target | 0.992023 | Not reached |
+| Base cut visible RGB RMSE against target | 6.980021 | Not reached |
+| Masked / outside-allowed / alpha-outside-mesh changed texels | 0 / 0 / 0 | Not reached |
+
+R1b's saved remaining target-pose gates, restricted to their original boxes:
+
+| Pose | Visible RGB RMSE | Silhouette IoU | Face-edge ratio | Front-hair ratio |
+| --- | ---: | ---: | ---: | ---: |
+| 02_respond | 19.529953 | 1.000000 | 0.294272 | 0.630463 |
+| 03_smile | 25.611254 | 1.000000 | 0.423835 | 0.811787 |
+| 04_embarrassed | 23.686676 | 1.000000 | 0.434806 | 0.598459 |
+| 05_serious | 24.902100 | 1.000000 | 0.370404 | 0.801180 |
+| 06_depressed | 19.113602 | 1.000000 | 0.488133 | 0.687695 |
+| eyeclose | 24.754259 | 1.000000 | 0.387043 | 0.683130 |
+
+Their waist bands contain zero target pixels; the engine records ratio 0 by convention.
+
+Sharpness is the **mean squared four-neighbour Laplacian of BT.601 luminance in 0-255 units**. All three
+images use identical support: official unmasked alpha at least 253, eroded one pixel. Head box:
+**338, 176, 756, 559**, with 112,664 samples. Body is the remaining support, including the bicycle,
+with 813,721 samples. R1c is the rejected keyed base target, not a page render. Pixel-grid edges, ringing
+and colour artifacts increase this measure, so its larger R1c value does not establish better detail.
+
+| Base composite | Head, squared luminance units | Body, squared luminance units |
+| --- | ---: | ---: |
+| Official | 780.866102 | 723.539312 |
+| R1b | 525.008413 | 437.733869 |
+| R1c rejected target | 5265.022770 | 2949.951757 |
+
+### Review observations and validation
+
+External review sheets contain the full official/R1b/rejected-target comparison in K5's exact frame;
+the waist (560, 780, 1000, 1000), face (430, 270, 670, 480), stem (420, 900, 560, 1000), and chin
+(440, 400, 660, 480) boxes; all five input/return pairs; the three raw overlap comparisons; first/retry
+head comparison; and before/after keying face and stem comparisons. Official masked pixels are restored
+for display using the same convention as `finish`; the unmasked target is retained separately for
+metrics. The six expression sheets show R1b beside an explicit unavailable-R1c tile, because no R1c
+pages exist. Earlier planning-only sheets remain separate from the final review set.
+
+Observations for the lead: the returned drawings have stronger, finer hair and bicycle lines than the
+official inputs, but the head and upper-body generations differ in iris highlights and hair contours.
+The rejected merged target has doubled contours around the shorts' curved seam and stem rings, and
+green specks at the chin and hair. The new head has stronger cheek hatching than R1b. These observations
+and failed gates do not provide an owner acceptance or a successful no-seam result. No R1c expression
+or in-game appearance can be assessed from this stopped run.
+
+The four fixed engine files match the starting commit byte for byte, and original official bundle
+hashes are unchanged. Plan artifact hashes and filled prompts validate. The official and seven R1b
+reference renders match the saved references exactly. Only this section and the single BL-056 backlog
+status line changed in tracked files. The documentation diff passed whitespace checks. No full suite,
+engine development, package build, GUI, browser, screenshot, audio, installation or push was used.
+The documentation commit is delivered in the requested branch bundle because the normal index is
+sandbox-blocked. No private image or run artifact is tracked.
