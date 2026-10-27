@@ -5,16 +5,64 @@ import re
 from typing import Any
 
 from ..errors import ServiceError
-from ..updater import parse_version
+from ..updater import parse_version, prerelease_previews
 from .state import UiState
 
 LOCALES = ('en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH')
-# Publication requires the owner's approval of every locale and any illustration. Drafts live in docs/tours/.
-PUBLISHED_TOURS: tuple[dict, ...] = ()
+# True publishes owner-approved content to all builds; 'prerelease' is local review content, hidden in stable.
+# Final stable publication requires the owner's approval of every locale. Review copy lives in docs/tours/.
+PUBLISHED_TOURS: tuple[dict, ...] = ({
+    'version': '0.6.0',
+    'approved': 'prerelease',
+    'pages': [
+        {
+            'id': 'student-thumbnails',
+            'copy': {
+                'en-US': {'title': 'Student Thumbnails',
+                          'body': 'Take thumbnail photos from the full-screen student details.'},
+                'zh-CN': {'title': '学生大头照',
+                          'body': '学生详情全屏后增加大头照拍摄功能'},
+                'zh-TW': {'title': '學生大頭照',
+                          'body': '學生詳情全螢幕後增加大頭照拍攝功能'},
+                'ja-JP': {'title': '生徒のサムネイル',
+                          'body': '生徒詳細の全画面表示でサムネイル撮影が可能に'},
+                'ko-KR': {'title': '학생 썸네일',
+                          'body': '학생 상세 전체 화면에서 썸네일 촬영 기능 추가'},
+                'th-TH': {'title': 'ภาพย่อนักเรียน',
+                          'body': 'ถ่ายภาพย่อได้จากรายละเอียดนักเรียนแบบเต็มจอ'},
+            },
+        },
+        {
+            'id': 'hall-viewing-zoom',
+            'copy': {
+                'en-US': {'title': 'Zoom Student Hall',
+                          'body': 'Use the wheel or pinch to zoom the portrait scene, then pan to explore.'},
+                'zh-CN': {'title': '缩放学生大厅',
+                          'body': '滚轮、捏合放大立绘场景，平移查看'},
+                'zh-TW': {'title': '縮放學生大廳',
+                          'body': '滾輪、捏合放大立繪場景，平移查看'},
+                'ja-JP': {'title': '生徒ロビーを拡大',
+                          'body': 'ホイールやピンチで立ち絵のシーンを拡大、移動して表示'},
+                'ko-KR': {'title': '학생 로비 확대',
+                          'body': '휠이나 핀치로 스탠딩 장면을 확대하고 이동하여 보기'},
+                'th-TH': {'title': 'ขยายล็อบบี้นักเรียน',
+                          'body': 'หมุนล้อหรือจีบนิ้วเพื่อขยายฉากภาพยืน แล้วเลื่อนดู'},
+            },
+        },
+    ],
+},)
 
 
 def version_key(version: Any) -> tuple | None:
     return parse_version(version.removesuffix('-dev')) if isinstance(version, str) else None
+
+
+def release_key(version: str, current: str) -> tuple | None:
+    """A release's tour can be reviewed during that release's own pre-release series."""
+    key, running = version_key(version), version_key(current)
+    if key and running and key[3][0] == 1 and prerelease_previews(current) and key[:3] == running[:3]:
+        return min(key, running)
+    return key
 
 
 def published(current: str, language: str) -> list[dict]:
@@ -22,11 +70,13 @@ def published(current: str, language: str) -> list[dict]:
     current_key = version_key(current)
     result, versions = [], set()
     for tour in PUBLISHED_TOURS:
-        if not isinstance(tour, dict) or tour.get('approved') is not True:
+        if not isinstance(tour, dict) or not (tour.get('approved') is True
+                or (tour.get('approved') == 'prerelease' and prerelease_previews(current))):
             continue
         version, pages = tour.get('version'), tour.get('pages')
         key = version_key(version)
-        if key is None or current_key is None or key > current_key or key in versions or not isinstance(pages, list):
+        if (key is None or current_key is None or release_key(version, current) > current_key
+                or key in versions or not isinstance(pages, list)):
             continue
         localized, ids = [], set()
         for page in pages:
@@ -72,7 +122,7 @@ def launch(state: UiState, current: str, tours: list[dict]) -> dict:
         pending = history.get('pending', [])
         pending = {v for v in pending if version_key(v)} if isinstance(pending, list) else set()
         if high is not None and current_key > high:
-            pending.update(t['version'] for t in tours if high < version_key(t['version']) <= current_key)
+            pending.update(t['version'] for t in tours if high < release_key(t['version'], current) <= current_key)
         if high is None or current_key > high:
             history['highest'] = current
         history['pending'] = sorted(pending - seen)

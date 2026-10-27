@@ -508,11 +508,11 @@ simulation, cannot install anything and must not exist in a stable build.
 
 ## BL-021: First-launch new-version feature tour
 
-- Status: Implemented; owner decision (2026-10-27): the revised 0.6.0 tour ships in the next prerelease for review; stable needs the owner's final OK.
+- Status: Implemented for local review; owner UAT/visual acceptance pending.
 - Owner review of the 0.6.0 draft (2026-10-26): merge the photography and shared-gallery pages into one student
   thumbnail page (`学生详情全屏后增加大头照拍摄功能`), drop the release-notes page; publication awaits the owner's OK
   on the revised copy.
-- Note: Profile-local upgrade history and Settings replay support text-only tours; the published registry is empty and the six-locale 0.6.0 draft awaits approval.
+- Note: The two-page, six-locale 0.6.0 text-only tour is registered for prerelease Settings replay and upgrade presentation; stable publication remains gated.
 - Requested: 2026-10-25.
 - Flow: [New-version feature tour](feature-tour-flow.md).
 

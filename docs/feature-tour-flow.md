@@ -1,7 +1,7 @@
 # New-version feature tour
 
-Status: BL-021 framework implemented for local review; owner UAT/visual acceptance pending. The published registry
-is empty. [0.6.0 copy and illustration concepts](tours/0.6.0-draft.md) await owner approval.
+Status: BL-021 implemented for local review; owner UAT/visual acceptance pending. The two text-only pages of the
+[0.6.0 tour](tours/0.6.0-draft.md) are registered for prerelease review. Stable publication awaits final owner approval.
 
 The current implementation uses text-only pages with an optional bundled App UI illustration slot. It never
 packages game screenshots or game-derived images, and never captures a scene or starts a renderer for a tour.
@@ -80,7 +80,10 @@ tour. If earlier tour data is absent, show the available current highlights with
 
 Example: upgrading from 0.4.1 past 0.5.0 to a future stable 0.6.0 could show Student Hall, ZIP export and student
 thumbnail photography as three separate pages, once the owner approves those actual release materials. The
-current local 0.6.0-alpha build is not a published stable release or an approved tour.
+current local 0.6.0-alpha build includes the two-page 0.6.0 tour for review. `approved: 'prerelease'` uses the
+shared running-version prerelease gate, including development's `-dev`. The release core admits a `0.6.0` tour
+during `0.6.0-alpha.9`; future prerelease versions still follow normal SemVer order. `approved: True` is reserved
+for final owner approval. Presentation history uses `0.6.0` across this prerelease series and the eventual stable.
 
 ## Remembering presentation
 
@@ -115,5 +118,5 @@ counts as presentation and avoids a second automatic popup later in that launch.
    downgrades, copied profiles and crash recovery. The owner handles UAT and visual acceptance.
 
 BL-020 Release Notes provide the complete user-facing changes for a detected release. `CHANGELOG.MD` records
-developer-oriented version history. BL-021 is the concise, image-led feature introduction; none substitutes for
+developer-oriented version history. BL-021 is the concise feature introduction; none substitutes for
 the others.

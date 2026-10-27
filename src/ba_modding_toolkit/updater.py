@@ -53,6 +53,12 @@ def parse_version(text: str) -> tuple | None:
     return core + ((0, ids),)
 
 
+def prerelease_previews(version: str) -> bool:
+    """Local review features require a running SemVer pre-release, including development's ``-dev``."""
+    key = parse_version(version) if isinstance(version, str) else None
+    return key is not None and key[3][0] == 0
+
+
 def current_version() -> str:
     """This build's version; development runs report ``<version>-dev``."""
     return get_version_info().get("version") or "0.0.0"

@@ -464,3 +464,11 @@ def test_release_notes_belong_to_the_exact_detected_tag():
     assert info.page == f'https://github.com/{updater.REPO}/releases/tag/v0.6.0'
     for body in ('', None, {}, 42):
         assert updater.latest([{**selected, 'body': body}], '0.4.0', None).notes == ''
+
+
+@pytest.mark.parametrize('version, expected', [
+    ('0.6.0-alpha.9', True), ('0.6.0-alpha.9-dev', True), ('0.6.0-dev', True),
+    ('0.6.0+alpha.9', False), ('0.6.0', False), ('invalid', False), (None, False),
+])
+def test_prerelease_preview_gate_uses_running_version(version, expected):
+    assert updater.prerelease_previews(version) is expected

@@ -31,8 +31,41 @@ def acknowledge(state, version, planned):
     tours.presented(state, planned['versions'], tours.published(version, 'en-US'))
 
 
-def test_shipped_manifest_has_no_unapproved_content():
-    assert tours.PUBLISHED_TOURS == ()
+@pytest.mark.parametrize('current', ['0.6.0-alpha.9', '0.6.0-alpha.9-dev', '0.6.0-dev'])
+def test_review_manifest_matches_draft_and_is_text_only(current):
+    from pathlib import Path
+    draft = (Path(__file__).parents[1] / 'docs/tours/0.6.0-draft.md').read_text()
+    assert tours.PUBLISHED_TOURS[0]['approved'] == 'prerelease'
+    for lang in tours.LOCALES:
+        available = tours.published(current, lang)
+        assert [t['version'] for t in available] == ['0.6.0']
+        assert [p['id'] for p in available[0]['pages']] == ['student-thumbnails', 'hall-viewing-zoom']
+        for page in available[0]['pages']:
+            assert f"| {lang} | {page['title']} | {page['body']} |" in draft
+            assert page['image'] is None and page['caption'] == ''
+    page = tours.published(current, 'zh-CN')[0]['pages'][1]
+    assert (page['title'], page['body']) == ('缩放学生大厅', '滚轮、捏合放大立绘场景，平移查看')
+
+
+@pytest.mark.parametrize('current', ['0.6.0', '0.6.0+build.9', '0.7.0', 'invalid', '0.5.0-alpha.9'])
+def test_review_manifest_is_hidden_outside_eligible_prereleases(tmp_path, current):
+    state = UiState(tmp_path / 'webui.json')
+    plan(state, '0.5.0')
+    assert tours.published(current, 'en-US') == []
+    assert plan(state, current)['pages'] == []
+
+
+@pytest.mark.parametrize('previous', ['0.5.0', '0.6.0-alpha.8', '0.6.0-alpha.8-dev'])
+def test_review_upgrade_uses_release_core_and_does_not_repeat(tmp_path, previous):
+    state = UiState(tmp_path / 'webui.json')
+    plan(state, previous)
+    pending = plan(state, '0.6.0-alpha.9')
+    assert pending['versions'] == ['0.6.0'] and len(pending['pages']) == 2
+    assert plan(UiState(state.path), '0.6.0-alpha.9') == pending
+    assert plan(state, previous)['pages'] == []
+    acknowledge(state, '0.6.0-alpha.9', pending)
+    assert plan(UiState(state.path), '0.6.0-alpha.10')['pages'] == []
+    assert plan(state, '0.6.0')['pages'] == []
 
 
 def test_first_install_empty_content_and_same_version_are_quiet(tmp_path, manifest):
@@ -109,6 +142,7 @@ def test_approvals_all_locales_missing_copy_and_images(monkeypatch):
 
 
 def test_empty_manifest_records_baseline_without_scans_then_allows_future_content(tmp_path, monkeypatch):
+    monkeypatch.setattr(tours, 'PUBLISHED_TOURS', ())
     state = UiState(tmp_path / 'webui.json')
     assert plan(state, '0.5.0')['pages'] == []
     assert json.loads(state.path.read_text())['tours']['highest'] == '0.5.0'
@@ -126,3 +160,8 @@ def test_other_instance_preferences_and_presentations_merge(tmp_path, manifest):
     tours.presented(second, ['0.7.0'], tours.published('0.7.0', 'en-US'))
     assert first.get('language') == 'ja-JP'
     assert plan(first, '0.7.0')['versions'] == ['0.5.0']
+
+
+def test_release_core_exception_never_admits_a_future_prerelease_tour(monkeypatch):
+    monkeypatch.setattr(tours, 'PUBLISHED_TOURS', (release('0.6.0-beta.1', 'future'),))
+    assert tours.published('0.6.0-alpha.9', 'en-US') == []

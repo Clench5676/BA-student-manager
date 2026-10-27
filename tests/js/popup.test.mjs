@@ -2187,3 +2187,39 @@ test('source cards use the state badge and fitted locale caption in every picker
     }
   } finally { setStrings('en-US', Object.fromEntries(strings(english))); }
 });
+
+
+test('shipped text-only tour copy fits the notice geometry in every locale, window and density', async () => {
+  const NGUI = await import('../../src/ba_modding_toolkit/web/js/ngui.js');
+  const draft = readFileSync(new URL('../../docs/tours/0.6.0-draft.md', import.meta.url), 'utf8');
+  await Popup.ready();
+  try {
+    for (const lang of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) {
+      const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
+      setStrings(lang, Object.fromEntries(strings(ui)));
+      const rows = draft.split('\n').filter((line) => line.startsWith(`| ${lang} |`));
+      assert.equal(rows.length, 2);
+      for (const [index, row] of rows.entries()) {
+        const [, , title, copy] = row.split('|').map((cell) => cell.trim());
+        const tree = Tours.pageTree({ version: '0.6.0', title, body: copy }, index, 2);
+        const popup = NGUI.find(tree, 'Popup');
+        assert.equal(NGUI.find(popup, 'ImageSlot'), null);
+        assert.equal(NGUI.find(popup, 'Caption'), null);
+        for (const [path, original] of [['FeatureTitle', title], ['FeatureBody', copy]]) {
+          const node = NGUI.find(popup, path), w = node.widgets[0];
+          assert.equal(w.text.replace(/\s/g, ''), original.replace(/\s/g, ''));
+          assert.ok(w.fontSize >= (path === 'FeatureTitle' ? 44 : 40));
+          assert.ok(w.text.split('\n').length <= (path === 'FeatureTitle' ? 2 : 3));
+          for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440]]) for (const density of [1, 2]) {
+            const scale = Math.min(width / 1920, height / 1080) * S * density;
+            for (const line of w.text.split('\n')) assert.ok(NGUI.glyphWidth(line, w.fontSize) * scale <= w.w_ * scale);
+            assert.ok((Math.abs(node.pos[0]) + w.w_ / 2) * scale < Tours.GEOMETRY.width / 2 * scale);
+            assert.ok((Math.abs(node.pos[1]) + w.h_ / 2) * scale < Tours.GEOMETRY.height / 2 * scale);
+            const controls = NGUI.find(popup, 'Btn');
+            assert.ok((node.pos[1] - w.h_ / 2) * scale > (controls.pos[1] + 177 / 2) * scale);
+          }
+        }
+      }
+    }
+  } finally { setStrings('en-US', Object.fromEntries(strings(english))); }
+});
