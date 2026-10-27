@@ -46,7 +46,7 @@ Branch: `codex/portrait-refine-experiment`. Continuation starting HEAD:
 Verified by running the worktree's `GameAssets`, `AssetCache(allowed=False)`, `get_search_dirs`, `spine_cores('spr')`,
 and `spine_files('spr', 'shiroko_ridingsuit_spr')`. No preview disk cache was supplied. The sole asset source was:
 
-`/Users/A200237264/Library/Caches/BAMT-Dev/views/steam-3557621-7791673520712697115-1955d55449`.
+the official development view `steam-3557621-7791673520712697115-1955d55449`.
 
 The shipped catalogue maps English **Shiroko (Cycling)** to `shiroko_ridingsuit`, aliases `ch0065` and
 `shiroko_cycling`. Discovery finds exactly `shiroko_ridingsuit_spr` for its portrait core. The separate static
@@ -487,14 +487,8 @@ No original/generated image bytes or atlas/skeleton payloads are included in Git
   that a successful composition render is not covered here.
 - Full JavaScript suite: `node --test tests/js/*.test.mjs`: **1897 passed, 0 failed, 0 skipped**, 10.146 s.
 - Full Python suite with the official development view: **3272 passed, 27 skipped, 3 warnings**, 241.66 s.
-  The warnings concern existing `locale.getdefaultlocale` deprecation. Command:
-
-  ```sh
-  PYTHONDONTWRITEBYTECODE=1 TMPDIR=/private/tmp/bl056/test-tmp \
-    PYTHONPATH=/Users/A200237264/Repos/BA-student-manager/.claude/worktrees/portrait-refine-experiment/src:/Users/A200237264/Repos/BA-student-manager/.bamt-dev-path \
-    PYTEST_ADDOPTS='-p bamt_dev.testing' \
-    /Users/A200237264/Repos/BA-student-manager/.venv/bin/python -m pytest -q -p no:cacheprovider
-  ```
+  The warnings concern existing `locale.getdefaultlocale` deprecation. The isolated test configuration with the
+  official development view was used, with `pytest -q -p no:cacheprovider`.
 
 - No product tests were added for this report-only change. Full suites were run once at the end of the image
   experiment; temporary scripts validate the experiment rather than changing shipped behavior.
@@ -779,9 +773,8 @@ There are no committed skeletons, atlases or images from the game.
   `k5/deps` and used that extra PYTHONPATH; the primary venv was not changed. The new engine dependency is
   declared and locked, with hashes checked against [PyPI's release files](https://pypi.org/project/numpy/2.3.5/#files).
   `uv lock --check --offline` passes. No package was built.
-- Python command used the requested official-view plugin, worktree `src`, the primary checkout's read-only
-  `.bamt-dev-path`, `TMPDIR=/private/tmp/bl056/k5`, `-q -p no:cacheprovider`, and the temporary Git index so
-  isolation recognizes the new tracked files. Full logs remain in `k5/`.
+- Python command used the isolated test configuration with the official development view, worktree `src`,
+  `-q -p no:cacheprovider`, and the temporary Git index so isolation recognizes the new tracked files. Full logs remain in `k5/`.
 - Engine files: `refine_composite.py`, `web/js/refine-composite.js`, and the projected-page extension to
   `refine_assembly.py`; dependency declarations: `pyproject.toml`, `uv.lock`, `requirements.txt`.
   Tests: `test_refine_composite.py`, `test_refine_assembly.py`, `js/refine_composite.test.mjs`, and the Node-only

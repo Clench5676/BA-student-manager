@@ -14,7 +14,7 @@ Every factual statement below carries an evidence label, individually or at the 
 - **P — proposed, unverified:** a product or engineering decision requiring implementation and tests. This includes all new flags, routes, files and UI behaviour in this document.
 - **U — unverified platform outcome:** requires packaged native acceptance; it is not an assurance of compatibility or absence of security prompts.
 
-Repository links below are relative to this document; the inspected worktree is `/Users/A200237264/Repos/BA-student-manager/.claude/worktrees/mod-switch-shortcut`. The owner's UI guidelines were read at their specified primary-checkout path, read-only. **F:** prefab metadata came only from the complete official development view identified by `bamt_dev doctor`: `steam-3557621-7791673520712697115-1955d55449`. No owner game install or owner App data was inspected.
+Repository links below are relative to this document; the inspected worktree is `/Users/A200237264/Repos/BA-student-manager/.claude/worktrees/mod-switch-shortcut`. The owner's UI guidelines were read at their specified primary-checkout path, read-only. **F:** prefab metadata came only from the complete official development view `steam-3557621-7791673520712697115-1955d55449`. No owner game install or owner App data was inspected.
 
 **P:** Limit the feature to packaged macOS and Windows desktop builds. Keep the public CLI removal in BL-048: an internal App action argument is not a new installed command or separate executable. Source/browser-only mode may reject generation with the existing native-unavailable message. This task changes only this design and the BL-054 status line; it does not update project status to “Implemented”.
 
@@ -262,7 +262,7 @@ These are review questions, not blockers to this design-only delivery. Each reco
 
 **S/F:** Read BL-054, BL-024 and BL-037, the owner's UI guidelines and the startup/service/library/path sources named above. Inspected the exact Settings/action and result-frame metadata in the official development view, without running a GUI or exporting an image. Existing labels were read from all six locale files; no application, style, locale or test file is changed.
 
-**S:** Related existing tests and the final full Python suite used `PYTHONPATH=<worktree>/src:/Users/A200237264/Repos/BA-student-manager/.bamt-dev-path`, `PYTEST_ADDOPTS="-p bamt_dev.testing"`, and the primary checkout's `.venv/bin/python -m pytest -q -p no:cacheprovider`, launched from this worktree. The full Node run used `node --test` with this worktree's `tests/js/*.test.mjs`. Results on 2026-10-27:
+**S:** Related existing tests and the final full Python suite used the isolated test configuration with the official development view and `pytest -q -p no:cacheprovider`, launched from this worktree. The full Node run used `node --test` with this worktree's `tests/js/*.test.mjs`. Results on 2026-10-27:
 
 | Baseline validation | Result |
 | --- | --- |
