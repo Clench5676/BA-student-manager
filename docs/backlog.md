@@ -1127,7 +1127,7 @@ skin keeps the existing warning.
 
 ## BL-054: Mod switch outside the App
 
-- Status: Owner decision (2026-10-27): part of this cycle, before the 0.6.0 release; design proposal in progress.
+- Status: Design proposed for owner review; implementation not started.
 - Requested: 2026-10-27.
 - Related: the top bar's Enable Mods switch, BL-037 close handling.
 
