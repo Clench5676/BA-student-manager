@@ -44,6 +44,7 @@ class CutParameters:
     ramp_high: float = 12 / 255
     bleed_pad: int = 2
     join_ratio: float = 1.
+    join_silhouette_margin: int = 3
     min_iou: float = .96
     max_pose_rmse: float = 255.
     gradient_bins: int = 20
@@ -352,10 +353,17 @@ def _nearest(values, valid):
     return out
 
 
-def join_band_gate(rendered, target, bands, reference, *, max_ratio=1., bins=20):
-    """Gradient-distribution-matched interior RMSE, in straight RGB / 255 units."""
+def join_band_gate(rendered, target, bands, reference, *, max_ratio=1., bins=20, silhouette_margin=0):
+    """Gradient-distribution-matched interior RMSE, in straight RGB / 255 units.
+
+    ``silhouette_margin`` (composite px) keeps join bands off the outer silhouette, which has its own
+    gates: where a join band meets thin outline structures it would otherwise measure the outline.
+    """
     actual, goal = _rgba(rendered), _rgba(target)
     opaque = goal[..., 3] > .97
+    if silhouette_margin > 0:
+        opaque = np.asarray(Image.fromarray(np.uint8(opaque) * 255).filter(
+            ImageFilter.MinFilter(2 * int(silhouette_margin) + 1))) > 0
     bands = {name: mask & opaque for name, mask in bands.items()}
     reference = reference & opaque
     for mask in bands.values():
@@ -448,6 +456,7 @@ def cut(poses: list[Pose], official_pages: dict[str, Image.Image], *, density=1,
     if not (0 < p.swap_alpha <= 1 and 0 < p.hidden < 1 and 0 <= p.top_hidden <= 1
             and 0 < p.alpha_snap <= 1 and p.ramp_high > p.ramp_low >= 0
             and 0 <= p.min_iou <= 1 and p.join_ratio > 0 and p.max_pose_rmse >= 0
+            and type(p.join_silhouette_margin) is int and p.join_silhouette_margin >= 0
             and type(p.gradient_bins) is int and p.gradient_bins > 0 and p.bleed_mode in ('nearest', 'smooth')):
         raise ValueError('Invalid cut thresholds')
     for key in ('halo_pad', 'grow', 'feature_radius', 'feature_feather', 'drift_radius', 'mesh_inset', 'mesh_feather', 'bleed_pad', 'flat_blur'):
@@ -708,7 +717,8 @@ def cut(poses: list[Pose], official_pages: dict[str, Image.Image], *, density=1,
             if pose.box is not None:
                 bands = {label: mask & window for label, mask in bands.items()}
                 reference &= window
-            row['joins'] = join_band_gate(rendered, goal, bands, reference, max_ratio=p.join_ratio, bins=p.gradient_bins)
+            row['joins'] = join_band_gate(rendered, goal, bands, reference, max_ratio=p.join_ratio, bins=p.gradient_bins,
+                                          silhouette_margin=p.join_silhouette_margin)
             for label, check in row['joins'].items():
                 if not check['passed']: report['failures'].append(f'{pose.name}:join:{label}')
             if row['silhouette_iou'] < p.min_iou: report['failures'].append(f'{pose.name}:silhouette')

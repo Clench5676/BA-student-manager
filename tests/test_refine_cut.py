@@ -315,3 +315,21 @@ def test_strict_bleed_uses_existing_nearest_colour_without_averaging():
     seeds = {tuple(c) for c in np.asarray(result.pages['body.png'])[..., :3][np.asarray(result.pages['body.png'])[..., 3] > 0]}
     colour = result.pages['body.png'].getpixel((30, 60))[:3]
     assert colour in seeds
+
+
+def test_join_gate_silhouette_margin_ignores_outline_pixels():
+    target = np.full((40, 40, 4), 200, np.uint8); target[..., 3] = 255
+    target[:, :10, 3] = 0
+    rendered = target.copy()
+    band = np.zeros((40, 40), bool); band[18:22, :] = True
+    # Error only on the band's two columns next to the transparent outline.
+    rendered[18:22, 10:12, :3] = 0
+    ref = np.ones((40, 40), bool)
+    plain = join_band_gate(Image.fromarray(rendered), Image.fromarray(target), {'join': band}, ref)['join']
+    margin = join_band_gate(Image.fromarray(rendered), Image.fromarray(target), {'join': band}, ref,
+                            silhouette_margin=3)['join']
+    assert not plain['passed'] and margin['passed']
+    # An internal seam far from the outline still fails with the margin.
+    rendered[18:22, 25:27, :3] = 0
+    assert not join_band_gate(Image.fromarray(rendered), Image.fromarray(target), {'join': band}, ref,
+                              silhouette_margin=3)['join']['passed']
