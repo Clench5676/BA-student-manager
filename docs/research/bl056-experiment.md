@@ -530,3 +530,75 @@ all expressions and animation seams, alpha fringes, BC7/Unity round trip and act
 headless renderer and a successful subscription-backed `codex exec` image-save run remain missing evidence.
 This experiment delivers the requested image trials, measured limits and local review artifacts; it does not
 approve a production integration or a game-ready portrait.
+
+## 8. K4: engine assembly and local owner test mods
+
+`src/ba_modding_toolkit/refine_assembly.py` now provides `assemble_page` and `assemble_mod`, without UI,
+generation or locale changes. Inputs are the official portrait parts and an arbitrary-size generated page,
+unrotated trimmed region crop (name/index), or box crop in atlas coordinates (left, top, right, bottom).
+The engine reuses `atlas_remap` parsing, region/page types, bounds, rotation, alpha conversion and aspect
+validation; `Bundle` and `core.process_asset_packing` perform the named-PNG replacement.
+
+Generated RGB maps onto the exact selected rectangle; official alpha is restored exactly. Only selected
+atlas rectangles change; box edits are clipped to their union and whole-page aliases are composed once.
+Integer enlargement replicates untouched official RGBA pixels with nearest neighbour, while generated RGB
+uses Lanczos. There is no conservative erosion/border guard, blending or geometric warping. Per-processed-
+region misalignment is the signed displacement of internal luminance-edge centroids, weighted by official
+alpha, in official texture pixels; null means no measurable edges. This colour-sensitive diagnostic is
+not a registration or seam score. Actual changed region names include overlaps: D3 processes only
+`shiroko_ridingsuit`, but its rectangle also intersects `shiroko_ridingsuit1`.
+
+Enlargement evidence: `atlas_remap._box` scales coordinates by image size / declared page size;
+`page_size_mismatch` checks aspect ratio, and the existing `remap_pages` upscaled path leaves atlas coordinates
+unchanged. The shipped Spine **4.2.120** runtime computes UVs as atlas coordinates divided by declared page
+dimensions; `TextureAtlasPage.setTexture` binds texture/filter/wrap without replacing those dimensions.
+New Node tests execute that runtime and prove identical page dimensions, region/mesh UVs, trim geometry and
+vertices with unchanged atlas text at 1x/2x and all four rotations. K4 therefore keeps atlas/skeleton bytes
+unchanged. This refutes the earlier blanket warning that larger textures require changed atlas metadata;
+generated geometry drift remains independent. D3-2x retains a 1204 × 998 unrotated patch from its 1378 × 1142
+output, versus 602 × 499 at native density. No GUI, browser or renderer was run.
+
+Generated RGB defaults to straight; generated/page PMA overrides are supported. The owner mods use the
+atlas's omitted-PMA/false default, consistent with the App's current export and straight-renderer path.
+The previously recorded material/decoded-pixel discrepancy remains unresolved; this is an explicit
+owner-review assumption, not proof of native game blending. Exact identity inputs bypass lossy PMA conversion.
+The PNG packer retains target GPU format, so edited pages are first staged as **RGBA32**, following the
+lossless policy already used by `library.portrait_edit.patch_portraits`; BC7 re-encoding could alter untouched
+pixels and alpha. Identity inputs retain encoded BC7. Outputs use the official filename, LZ4, fixed CRC and
+the synthetic packer's four `0x08` extra bytes. Reload checks prove exact assembled pixels and unchanged
+unrelated serialized objects. The larger lossless bundles are intentional.
+
+Each `/private/tmp/bl056/k4/mods/<label>/` contains only
+`assets-_mx-spinecharacters-shiroko_ridingsuit_spr-_mxdependency-2024-11-18_003_assets_all_782832622.bundle`.
+This table comes from local `k4/mods.json`, which records all input names/sizes/SHA-256, per-region diagnostics,
+changed regions and output filename/size/SHA-256. No new game-file hashes or asset payloads are added here.
+
+| Label | Generated input | Page | Processed / changed regions | Changed pixels | Max edge-centroid distance (px) | Bundle bytes | App import |
+| --- | --- | --- | --- | ---: | ---: | ---: | --- |
+| `shiroko-cycling-d1` | `d1-conservative.png` | 1024 × 1024 | 13 / 13 | 520054 | 14.025121 | 2044422 | Accepted |
+| `shiroko-cycling-d3` | `d3-upper-body-output.png` | 1024 × 1024 | 1 / 2, upper/lower overlap | 178437 | 3.479856 | 1509114 | Accepted |
+| `shiroko-cycling-s1` | `s1-original-shiroko-style.png` | 1024 × 1024 | 13 / 13 | 526460 | 29.587808 | 1878605 | Accepted |
+| `shiroko-cycling-d3-2x` | `d3-upper-body-output.png` | 2048 × 2048 | 1 / 2, upper/lower overlap | 707060 | 4.753863 | 3134984 | Accepted |
+
+All four actual mods passed unchanged `ModLibrary.identify_import`, `inspect_import(conversion=True)`
+(direct, no rebuild), and `add` in temporary `k4/import-check`, identifying `shiroko_ridingsuit`, kind `spr`,
+and the exact official filename. Local `k4/build_mods.py` reproduces them and verifies official input hashes
+remain unchanged. No mod was applied, and no owner installation or App data folder was accessed.
+
+Focused tests passed **45 Python / 4 Node checks**: synthetic straight/PMA pixels, identity, rotations,
+arbitrary crop sizes, boxes, 2x density, aliases, invalid targets, real synthetic BC7/RGBA32 bundles, CRC and
+unrelated objects. Optional `BAMT_TEST_GAME_DIR` tests skip without an official view; with it they prove the
+Shiroko identity round trip, real import at 1x/2x, and the App extractor returning unchanged atlas/skeleton
+plus the exact new page. Full suites ran once at the end: **1901 JavaScript passed**; Python with the official
+development-view plugin: **3317 passed, 27 skipped, 3 existing locale-deprecation warnings**, 231.71 s.
+
+Diagnosis: the missing generated-image-to-Mod bridge is confirmed and implemented in the engine. Feature
+alignment is measured, not repaired. No prefab changed; the existing detail node remains
+`UICharacterDetail/Inventory_ListControl/CharacterPos`. Locale diff is empty. Native/visual owner acceptance
+still must judge composed detail/fullscreen portraits, version switching, poses, expressions, seams, style,
+fringes and game behavior. Import/extraction/UV tests do not claim a rendered or visually accepted character.
+
+The worktree index is blocked (`index.lock: Operation not permitted`). K4 commits use authorized temporary
+Git metadata and are delivered in `/tmp/portrait-assembly.bundle`, branch `codex/portrait-assembly`, based on
+`d46d9dd14a7c2376be19547f2b611807e77e9ce7`. Tests used only its temporary `GIT_INDEX_FILE` so the development
+tripwire recognizes the new files; the original worktree index/refs and primary checkout remain untouched.

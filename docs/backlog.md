@@ -1240,6 +1240,7 @@ remain for owner UAT; Windows is not natively reviewed.
 
 - Status: Funnel (2026-10-27): idea being refined with the owner; not designed, not scheduled.
 - Experiment report ready for owner review: [report and local image inventory](research/bl056-experiment.md).
+- Pass-through assembly implemented; test mods built for owner review (2026-10-27; K4 engine, no UI integration).
 - Requested: 2026-10-27.
 - Related: the editor plan (portrait module before L2D; AI as an optional module with deferred dependencies), the
   portrait repair editor milestone, BL-016 through BL-018.
