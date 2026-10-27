@@ -108,13 +108,13 @@ def test_key_identity_soft_alpha_and_no_key_fringe():
     assert keyed.tobytes() == official.tobytes()
     assert report['alpha_rmse_255'] == report['alpha_p99_255'] == 0
     assert max(scores) > 100
-    # A changed coverage of the same foreground must recover alpha and unmixed RGB.
+    # A global colour wash without connected key background is an opaque edit.
     changed = pixels.copy(); changed[..., 3] = 128
     changed[..., :3] = (72, 129, 181)
     out, _ = key_image(flatten(Image.fromarray(changed), key), official, key)
     a = np.asarray(out).astype(int)
-    assert abs(a[...,3] - 128).max() <= 1
-    assert abs(a[..., :3] - (72,129,181)).max() <= 3
+    assert (a[...,3] == 255).all()
+    assert np.array_equal(a[..., :3], np.asarray(flatten(Image.fromarray(changed), key)))
 
 
 def test_candidate_key_must_be_unused():
@@ -243,16 +243,17 @@ def test_changed_source_hash_and_aspect_and_translucent_return_raise(tmp_path):
 
 def test_templates_are_versioned_english_edit_only_and_forbid_wording():
     data = templates()
-    assert len(data) == len({(t['id'],t['version']) for t in data}) == 3
+    assert len(data) == len({(t['id'],t['version']) for t in data}) == 4
+    assert {(t['id'], t['version']) for t in data} >= {('detail-crisp-lines', 1), ('detail-crisp-lines', 2)}
     for t in data:
         assert not re.search(r'\b(?:transparen\w*|restor\w*|redesign\w*)\b', t['text'], re.I)
-        text = prompt(t['id'],crop_role='head',pose='01',width=128,height=128,preserve='all features',
+        text = prompt(t['id'],version=t['version'],crop_role='head',pose='01',width=128,height=128,preserve='all features',
                       key_colour='magenta',style_edit='line treatment')
         assert text.startswith('Use case: precise-object-edit.')
         assert 'Repeat:' in text and 'flat and unchanged' in text
     with pytest.raises(ValueError, match='Forbidden'):
         prompt('detail-crisp-lines',crop_role='head',pose='01',width=1,height=1,preserve='redesign',key_colour='green')
-    with pytest.raises(ValueError, match='Unknown'): prompt('detail-crisp-lines', version=2)
+    with pytest.raises(ValueError, match='Unknown'): prompt('detail-crisp-lines', version=3)
 
 
 def test_manifest_plan_and_finish_commands(tmp_path, capsys):
@@ -290,3 +291,20 @@ def test_official_cycling_input_identity(tmp_path):
     assert report['merge']['passed'] and result.report['identity']
     for n,im in pages.items():
         assert result.pages[n].tobytes() == im.resize((im.width*2,im.height*2),Image.Resampling.NEAREST).tobytes()
+
+
+def test_overlap_correction_cannot_rehabilitate_original_geometry_drift(tmp_path):
+    plan,folder,_,_=make_plan(tmp_path)
+    returns=tmp_path/'returns';returns.mkdir()
+    moved=next(c['id'] for c in plan['crops'] if c['role']=='body')
+    for c in plan['crops']:
+        im=Image.open(folder/c['input']).convert('RGB')
+        if c['id']==moved:
+            shifted=Image.new('RGB',im.size,tuple(plan['key_colour']));shifted.paste(im,(3,0));im=shifted
+        im.save(returns/(c['id']+'.png'))
+    _,report=merge_inputs(folder/'plan.json',returns,tmp_path/'diagnostic',diagnostic=True)
+    assert report['crops'][moved]['movement']['flags']
+    affected=[r for r in report['overlaps'] if moved in (r['a'],r['b'])]
+    assert affected and all('source_geometry' in r['movement']['flags'] for r in affected)
+    assert all(np.linalg.norm(c['applied_shift_native_px'])<=2 for c in report['crops'].values())
+    assert not report['passed']

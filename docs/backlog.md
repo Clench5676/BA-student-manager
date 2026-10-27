@@ -1270,6 +1270,10 @@ remain for owner UAT; Windows is not natively reviewed.
   structure is the simplest class (one page, one face slot, an idle that moves the whole body).
 - Join, generate, cut implemented in the engine; R1b reproduced (2026-10-27; K6, no UI integration).
 - Generation inputs, crop merge and prompt templates implemented; no generation yet (2026-10-27; K7).
+- K9 seam stitching, outline keying, rigid crop alignment and calibrated gates implemented (2026-10-28). The lead
+  kept join bands 3 px off the outer silhouette, where the waist band met thin outline structures (K5's seam still
+  fails at 2.23, R1b passes at 0.93). R1c built from K8's returns for owner review: waist 0.972, face edge 0.699,
+  front hair 0.978, silhouette IoU 0.996, import accepted. Head: K8's v1 retry (v2 still adds a hair outline).
 - R1c stopped after one retry (2026-10-27; K8): movement, overlap RMSE and crop-boundary gates still fail;
   no cut or mod was built. See experiment section 13 for the four-crop run and merge/key artifacts.
 - Owner review of the K4 test mods (2026-10-27): D1 and D3 are acceptable as generated images, but the joins are

@@ -14,6 +14,11 @@
       "id": "reference-line-style",
       "version": 1,
       "text": "Use case: precise-object-edit. Edit target: image 1, the supplied {crop_role} crop in pose {pose}, at {width} x {height}. Image 2 is a style reference posed and framed the same way. Change ONLY {style_edit}, using image 2 solely to guide that specified line and shading treatment. Keep every existing line's path, width, shape and position exactly. Preserve exactly {preserve}. Preserve all lettering verbatim, colours, outlines, object positions, expression, pose, framing, aspect ratio and crop. Invent nothing and transfer no objects or features from image 2. The plain {key_colour} backdrop must stay flat and unchanged, including every gap. Repeat: preserve the lines, lettering, colours, framing, aspect ratio and crop; change only the specified treatment. Return the same complete opaque image at the supplied size."
+    },
+    {
+      "id": "detail-crisp-lines",
+      "version": 2,
+      "text": "Use case: precise-object-edit. Edit target: image 1, the supplied {crop_role} crop in pose {pose}, at {width} x {height}. Remove ONLY blur and compression softness from the existing drawing; re-render the existing lines crisply at this exact size. Keep every line on its original path, with its original width and shape. Preserve exactly {preserve}. Preserve all lettering verbatim, colours, shading, outlines, object positions, expression, pose, framing, aspect ratio and crop. Invent nothing. Do not add outlines or contour lines along the silhouette or between colour areas where the input has none. Do not change any highlights, including eye highlights; keep their exact shapes, sizes, colours and positions. The plain {key_colour} backdrop must stay flat and unchanged, including every gap. Repeat: keep the same lines, lettering, colours, framing, aspect ratio and crop; only remove blur and compression softness. Return the same complete opaque image at the supplied size."
     }
   ]
 }
