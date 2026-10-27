@@ -492,7 +492,7 @@ externally changed files; stale snapshots and cancellation; export-only runs; an
 
 ## BL-020: Release notes in update detection
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending.
+- Status: Accepted by the owner (macOS review of 0.6.0-alpha.9, 2026-10-27) through the prerelease-only simulation; Windows not reviewed.
 - Note: Prerelease Settings offers notes-present and notes-empty simulations through the real update dialog; update and release-page actions stay local without network or installation.
 - Requested: 2026-10-25.
 
@@ -508,7 +508,7 @@ simulation, cannot install anything and must not exist in a stable build.
 
 ## BL-021: First-launch new-version feature tour
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending. Tour copy resolves from all six locale files; wording and prerelease gating are preserved.
+- Status: Owner review of alpha.9: the tour popup is too large (below); fix not started.
 - Owner review of the 0.6.0 draft (2026-10-26): merge the photography and shared-gallery pages into one student
   thumbnail page (`学生详情全屏后增加大头照拍摄功能`), drop the release-notes page; publication awaits the owner's OK
   on the revised copy.
@@ -532,6 +532,9 @@ Owner review of the 0.6.0 tour copy (2026-10-27): page 1 stays as it is. Page 2:
 `滚轮、捏合放大立绘场景，平移查看` (the clause about the saved layout is dropped); the other locales follow. Owner decision:
 put the tour into the next prerelease (Settings tour entry and the first launch after updating) for review; a stable
 build shows it only after the owner's final OK.
+
+Owner review of 0.6.0-alpha.9 on macOS (2026-10-27): the tour popup ("新功能 - 0.6.0", page 1/2, Previous/Next)
+fills almost the whole window; it is far too large for two short lines.
 
 ## BL-022: Shared student galleries, generated defaults and photo export
 

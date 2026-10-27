@@ -37,8 +37,8 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-053 | Accepted by the owner on macOS (alpha.7); Windows not reviewed |
 | BL-046 | Closed by the owner without UAT (CLI-only) |
 | BL-048 | Accepted: CLI no longer built, installed or released |
-| BL-020 | Implemented for local review; owner UAT/visual acceptance pending. Prerelease Settings offers both note cases without network or installation. |
-| BL-021 | Implemented for local review; owner UAT/visual acceptance pending. Two prerelease pages resolve unchanged copy from all six locale files. |
+| BL-020 | Accepted by the owner on macOS (alpha.9, simulated prompt); Windows not reviewed |
+| BL-021 | Owner review of alpha.9: tour popup too large; fix not started |
 | BL-013, BL-019, BL-030 | Planned, not implemented |
 | BL-054 | Deferred by the owner for research; design proposal on file |
 | BL-014 | Candidate, not scheduled |
