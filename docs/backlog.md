@@ -1255,10 +1255,17 @@ remain for owner UAT; Windows is not natively reviewed.
   2. generate on the whole character, tiling in composite space when the model's output is smaller than the frame;
      reject moved silhouettes, lines or lettering before cutting;
   3. cut with cover fill: every drawn texel of an unmasked part, visible or covered, takes the edited colour at its
-     composite position, with no fade to official colour at joins; official alpha; bleed refilled;
+     composite position, with no fade to official colour at joins; internal joins keep official alpha, the outer
+     silhouette takes the generated outline within each part's mesh, and face overlays (expressions, eyelids) solve
+     their alpha, since their lines are drawn in it; bleed refilled;
   4. edit each other expression's face with the base pass as fixed context and cut only its slot;
   5. re-render the packed mod for every expression and idle frames: masked, untouched and alpha bytes identical, and no
      error spike in the join bands, before the owner sees it.
+- R1b test mod built for owner review (lead, 2026-10-27): K5's R1 generations cut again with the revised method,
+  no new generation. Join-band error against interior pixels of the same detail: waist 0.94 (K5 R1: 2.08), face edge
+  0.59 (1.26), front hair edge 0.79 (0.86); silhouette IoU against the generation 0.992 (0.957). Halos byte-identical.
+  Known residue: a faint light trace under the smile's mouth and above the right eye in the eye-close pose. Details in
+  the [experiment report](research/bl056-experiment.md#10-r1b-re-cut-with-the-revised-method).
 - Owner review of the K4 test mods (2026-10-27): D1 and D3 are acceptable as generated images, but the joins are
   the problem. D3 2x shows seams at the forearms and along the waist where the restored upper body meets the
   unprocessed lower body, rough edge pixels on the forearm, and a lower body visibly blurrier than the upper body.

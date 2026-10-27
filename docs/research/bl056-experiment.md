@@ -802,3 +802,40 @@ invented details, moved lettering, feature shape changes, hidden parts revealed 
 in S2's unprocessed expressions. Native/visual owner acceptance must judge seam quality, halos/fringes, faces,
 small text, pose/expression/animation transitions, detail consistency, game blending and actual game loading.
 No visual acceptance or successful geometric preservation by the image model is claimed.
+
+## 10. R1b: re-cut with the revised method
+
+R1b cuts K5's R1 base generation and its six face crops again, with no new generation. Only the cut changed:
+
+- **Cover fill.** Every texel of an unmasked part takes the generated colour wherever anything shows through the parts
+  above it. There is no fade back to official colour. Covered texels keep the official drawing, shifted by the part's
+  smoothed colour change.
+- **Masked halos.** Texels a halo draws stay official. Atlas rectangles overlap here: the halo mesh sits inside the
+  lower body's rectangle. Protection therefore follows mesh polygons, not rectangles.
+- **Outer silhouette.** Alpha follows the generated outline within each part's mesh, wherever the two outlines
+  disagree. Added coverage goes to the part already drawing there, else to the nearest part. Generated alpha is
+  normalised to its interior level (253/255).
+- **Face overlays.** The expression slot and the eye-close slot draw their lines in alpha, so official alpha cannot
+  carry the generated lines. Each texel takes the smallest alpha that reproduces the target over the final head,
+  never below the official alpha. This is limited to 6 px around the slot's own drawn features and feathered 5 px
+  inside its mesh boundary. A constant colour offset, taken from flat skin around the face, is removed first.
+- **Head under the face.** Next to the default face's features, the head takes the per-texel median of every pose
+  that shows it: the base generation and each expression crop. A wider generated default mouth therefore does not
+  remain on the head. This skeleton reveals no other covered texels: its idle moves the whole body, and its blink
+  swaps the face slot.
+
+Gate: the join-band RMSE is divided by the RMSE of interior pixels with the same detail. Interior pixels are binned by
+generated luminance gradient. Only pixels where the generation is opaque are counted.
+
+| Band | K5 R1 | R1b |
+| --- | ---: | ---: |
+| Waist (lower body soft edge over upper body) | 2.08 | 0.94 |
+| Face edge | 1.26 | 0.59 |
+| Front hair edge | 0.86 | 0.79 |
+| Silhouette IoU against the generation | 0.957 | 0.992 |
+
+The packed page is 2048 x 2048 RGBA32 with LZ4 and the CRC fix. It reloads byte-identically, and its re-render equals
+the checked one. Unrelated objects and pixels outside the official regions are unchanged, and the official inputs are
+unchanged. The bundle is larger than K5's (6.5 MB against 4.6 MB). Known residue: a faint light trace under the
+smile's mouth and above the right eye in the eye-close pose. The expression crops keep K5's undeformed setup geometry,
+which matches how they were generated; the game's face deforms move these overlays slightly.
