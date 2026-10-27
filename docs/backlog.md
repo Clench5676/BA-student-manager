@@ -1127,7 +1127,7 @@ skin keeps the existing warning.
 
 ## BL-054: Mod switch outside the App
 
-- Status: Design proposed for owner review; implementation not started.
+- Status: Deferred by the owner (2026-10-27) for further research; design proposal in `docs/design/mod-switch-shortcut.md`, not approved; implementation not started.
 - Requested: 2026-10-27.
 - Related: the top bar's Enable Mods switch, BL-037 close handling.
 
@@ -1136,3 +1136,7 @@ folder; the user can put a shortcut to it on the desktop. Opening that file has 
 Mods switch and shows a short, plain UI notice of the result. Open design questions before implementation: where the
 file goes on each platform (packaged macOS builds cannot write next to the app), the file type on macOS and Windows,
 behaviour while the App is running or a game writer is active, and what the notice looks like.
+
+Owner decision (2026-10-27): not in 0.6.0. The design (M1 generated applet on macOS, W1 `.lnk` on Windows, command
+forwarding to a running App, a window-less transient mode with a small result window; estimated by the designer at
+8-12 engineering days) awaits the owner's research; no feasibility build either.
