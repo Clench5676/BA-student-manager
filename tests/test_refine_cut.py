@@ -285,22 +285,24 @@ def test_manifest_command_writes_only_to_external_folder(tmp_path, capsys):
     assert (tmp_path / 'result' / 'page-0-meshes.png').exists()
 
 
-def test_default_overlay_excludes_five_pixel_boundary_and_reference_profile_is_explicit():
+def test_strict_overlay_excludes_five_pixel_boundary_and_defaults_match_reference():
     g, alt, pages = overlay_fixture()
     # Draw features close enough to the left mesh boundary to exercise the exclusion.
     ImageDraw.Draw(pages['face.png']).rectangle((2, 20, 12, 22), fill=(10, 10, 10, 120))
     target = image((210, 190, 170, 255))
     ImageDraw.Draw(target).rectangle((1, 20, 14, 24), fill=(0, 0, 0, 255))
     poses = [Pose('base', g, target), Pose('alt', alt, image((210, 190, 170, 255)))]
-    strict = run(poses, pages)
+    strict = run(poses, pages, parameters=CutParameters.strict())
     reference = run(poses, pages, parameters=CutParameters.r1b_reference())
+    default = run(poses, pages)
+    assert all(default.pages[n].tobytes() == reference.pages[n].tobytes() for n in reference.pages)
     original = np.asarray(pages['face.png'])[..., 3]
     actual = np.asarray(strict.pages['face.png'])[..., 3]
     assert np.array_equal(actual[:, :5], original[:, :5])
     assert np.any(np.asarray(reference.pages['face.png'])[:, :5, 3] > original[:, :5])
 
 
-def test_default_bleed_uses_existing_nearest_colour_without_averaging():
+def test_strict_bleed_uses_existing_nearest_colour_without_averaging():
     a = attachment('body'); a['triangles'] = [0, 1, 2]
     g = geometry(a)
     page = image((0, 0, 0, 0))
@@ -309,7 +311,7 @@ def test_default_bleed_uses_existing_nearest_colour_without_averaging():
     target = compose(g, {'body.png': page}, frame=FRAME).image.copy()
     # A real RGB change avoids the exact identity shortcut.
     target.putpixel((25, 5), (250, 0, 0, 255))
-    result = run([Pose('base', g, target)], {'body.png': page})
+    result = run([Pose('base', g, target)], {'body.png': page}, parameters=CutParameters.strict())
     seeds = {tuple(c) for c in np.asarray(result.pages['body.png'])[..., :3][np.asarray(result.pages['body.png'])[..., 3] > 0]}
     colour = result.pages['body.png'].getpixel((30, 60))[:3]
     assert colour in seeds

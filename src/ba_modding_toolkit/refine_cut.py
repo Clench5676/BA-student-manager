@@ -37,9 +37,9 @@ class CutParameters:
     feature_feather: int = 3
     drift_radius: int = 16
     drift_min_pixels: int = 50
-    mesh_inset: int = 5
+    mesh_inset: int = 0
     mesh_feather: int = 5
-    bleed_mode: str = 'nearest'
+    bleed_mode: str = 'smooth'
     ramp_low: float = 3 / 255
     ramp_high: float = 12 / 255
     bleed_pad: int = 2
@@ -50,13 +50,17 @@ class CutParameters:
 
     @classmethod
     def r1b_reference(cls):
-        """Pinned experiment arithmetic; new cuts use the stricter SOP defaults.
+        """The owner-accepted R1b arithmetic, pinned: the defaults equal it.
 
-        R1b feathers through the first five mesh pixels and uses smooth bleed.
-        It predates the strict five-pixel exclusion and nearest-colour requirement.
-        This profile changes neither golden tolerances nor any per-portrait value.
+        Overlay alpha feathers through the first five mesh pixels; bleed is a smooth push-pull fill.
         """
-        return cls(mesh_inset=0, bleed_mode='smooth')
+        return cls(mesh_inset=0, mesh_feather=5, bleed_mode='smooth')
+
+    @classmethod
+    def strict(cls):
+        """A stricter variant, not visually accepted: no overlay alpha in the first five mesh pixels,
+        then a five-pixel feather; bleed copies the nearest edited colour."""
+        return cls(mesh_inset=5, bleed_mode='nearest')
 
 
 @dataclass

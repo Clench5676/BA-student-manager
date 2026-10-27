@@ -885,15 +885,14 @@ a tracked import check excludes the optional refinement modules from shipped Pyt
 
 ### Reference differences and fixed assumptions
 
-The brief's strict five-pixel exclusion differs from R1b's actual feather through those five pixels.
-R1b raises **3,036 overlay texels** in that band, by as much as 170 alpha levels; strict exclusion cannot
-also reproduce those bytes. The engine default excludes the first five pixels, then feathers over five
-more. R1b also uses smooth push-pull bleed whereas the SOP specifies nearest colour. The default uses
-nearest colour, with deterministic Chebyshev-grid ties and seeds from the same region. The explicit
-`CutParameters.r1b_reference()` profile sets zero exclusion with a five-pixel feather and smooth bleed,
-preserving the reference arithmetic. The local golden uses this fixed compatibility profile; it does not
-change tolerances or tune any value per portrait. Default-policy results are not claimed byte-identical
-to R1b. Both policies have synthetic controls.
+The brief's wording ("not within 5 px of the mesh boundary", "nearest edited colour" bleed) differed from R1b's
+actual arithmetic: R1b feathers overlay alpha through the first five mesh pixels (3,036 overlay texels in that band,
+by up to 170 alpha levels) and bleeds with a smooth push-pull fill. The owner accepted R1b, so the lead set the
+defaults to R1b's arithmetic in review; `CutParameters.r1b_reference()` pins it and equals the defaults.
+`CutParameters.strict()` keeps the stricter variant (five-pixel exclusion, then a five-pixel feather; nearest-colour
+bleed), which has synthetic controls but no visual acceptance. With the defaults and no caller-named masks (the
+halos are found from their additive slots), the golden page is still byte-identical and the packed bundle has R1b's
+SHA-256.
 
 Other assumptions are explicit: targets are already approved/aligned, the first pose is the base, pages
 are straight alpha, density is an integer page scale, and geometry/frame share world coordinates. The
@@ -942,8 +941,8 @@ Validation completed from the worktree with the requested isolated pytest plugin
 
 - Full JavaScript suite: **1,916 passed**, zero failed or skipped (10.24 seconds).
 - Full Python suite: **3,362 passed, 27 skipped**, zero failed (283.55 seconds). Three existing locale
-  deprecation warnings remain. The requested `PYTHONPATH`, `PYTEST_ADDOPTS="-p bamt_dev.testing"` and
-  `-p no:cacheprovider` configuration was used; the fallback without isolation was not needed.
+  deprecation warnings remain. The isolated test configuration with the official view was used; the fallback
+  without isolation was not needed.
 - Related coverage: `test_refine_cut.py` has 20 cases, `test_refine_composite.py` 22 and
   `test_refine_assembly.py` 48; `js/refine_composite.test.mjs` has 15. The official animation test ran.
 - Local golden: all seven targeted poses pass with diagnostic mode disabled; exact page, exact packed
@@ -957,5 +956,5 @@ switched and no repository metadata or files in the primary checkout were change
 
 Visual fidelity, lettering, expression character and the appearance in the game remain the owner's
 acceptance. Numerical agreement with the accepted local R1b result proves reproduction, not a new visual
-verdict. The default's stricter boundary and nearest bleed also require visual acceptance on later runs.
+verdict. The strict variant would need its own visual acceptance before use.
 No GUI, screenshots, browser preview, audio, image generation, package build, push or installation was used.
