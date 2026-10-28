@@ -1284,6 +1284,7 @@ remain for owner UAT; Windows is not natively reviewed.
   difference about as large as render-to-official), while R1b keeps most of it. Likely cause: R1c reuses K5's
   expression targets, made from a different base head, in the head median vote. Next run: generate the expression
   crops from the new base head (the K7 expression inputs) before cutting.
+  Owner (2026-10-28): not visible at normal size; no R1c rework. The rule applies to later runs.
 - R1c stopped after one retry (2026-10-27; K8): movement, overlap RMSE and crop-boundary gates still fail;
   no cut or mod was built. See experiment section 13 for the four-crop run and merge/key artifacts.
 - Owner review of the K4 test mods (2026-10-27): D1 and D3 are acceptable as generated images, but the joins are
