@@ -1678,3 +1678,30 @@ still byte-identical. With it, R1c passes every gate: waist 0.972, face edge 0.6
 0.996, all six expression poses below 0.87. The packed bundle reloads exactly and the App's unchanged import code
 accepts it as `shiroko_ridingsuit` (`spr`). The head is K8's v1 retry; it adds a darker hair outline that the owner's
 visual acceptance must judge.
+
+## 15. K10 to K12: local seam gates, a negative result
+
+Three rounds tried to catch short seams, seams inside parts and colour-only seams at the outline, on Shiroko
+(Cycling)'s saved results, without generation. Each round kept the accepted R1b and R1c renders passing and K5's
+waist seam failing, and each was judged on synthetic seams inserted at the waist, face edge, front hair, skin, cloth,
+a detailed area, the outline and a crop boundary.
+
+| Round | Method | Result |
+| --- | --- | --- |
+| K10 | Detail-matched ratio per 64 px band segment, 64 px character windows, outline-colour strip | 17 of 78 faults caught; window and segment areas still dilute a 1 to 2 px seam |
+| K11 | Oriented line and step responses linked into traces, limit from clean references at 0.8 margin, visibility rule Delta E76 >= 2.3 + 0.5 x local contrast and >= 32 px | 1 of 38 visible faults caught; whole-trace means diluted the seam again |
+| K12 | Worst 32 px window per trace, masks of the cut's deliberate departures, crop check limited to the stitch band | 7 of 38 visible faults caught; the first miss scored 19.31 against a 19.54 limit |
+
+The limiting factor is the clean reference, not the detector. The cut compares its render with the target, but it
+deliberately departs from the target in many places: the head median vote, the overlay alpha solve and its feather,
+cover fill, silhouette pass-through, alpha snapping, halo padding and frozen shared texels. Masking every labelled
+departure excluded 23% of R1b's base pose, 11% of R1c's and nearly all expression comparison areas, and R1c's
+strongest clean structure (a Delta E 19.8 step, 1 x 36 px, in the hair beside the ear) still had no labelled cause.
+None of the local checks could be enforced with the required margin, so none was merged. The whole-band join and
+crop-boundary gates of section 14 remain the enforced seam checks, and seam review stays visual.
+
+The same comparison showed a quality gap. In the head region R1c's render differs from its target about as much as
+from the official composite, whereas R1b's render stays close to its target. R1c reused K5's expression targets,
+which were generated from a different base head, so the head median vote pulls the new head back. A later run
+should generate the expression crops from the new base head before cutting.
+
