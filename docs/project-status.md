@@ -1,13 +1,13 @@
 # Development status
 
-As of 2026-10-26. Verify the actual branch, working tree and `pyproject.toml` version before reporting progress.
+As of 2026-10-29. Verify the actual branch, working tree and `pyproject.toml` version before reporting progress.
 [Backlog](backlog.md) holds the detailed requirements and owner findings.
 
 ## Branch state
 
 | Branch | State |
 | --- | --- |
-| `main` | Local version `0.6.0-alpha.11`: the published 0.5.0 baseline, the upstream syncs after it, the 0.6.0-alpha.1 and alpha.2 review work, BL-020, BL-021, BL-040, BL-041, BL-043, BL-042, BL-044, BL-045, BL-046, BL-047, BL-048 the alpha.5 to alpha.8 review fixes and the prerelease-only BL-020/BL-021 previews (BL-037, BL-044, BL-047, BL-049 through BL-053). Not pushed. |
+| `main` | Local version `0.6.0-alpha.12`: the published 0.5.0 baseline, the upstream syncs after it, the 0.6.0-alpha.1 and alpha.2 review work, BL-020, BL-021, BL-040, BL-041, BL-043, BL-042, BL-044, BL-045, BL-046, BL-047, BL-048 the alpha.5 to alpha.8 review fixes and the prerelease-only BL-020/BL-021 previews (BL-037, BL-044, BL-047, BL-049 through BL-053), BL-055, BL-057 and BL-058. Not pushed. |
 | `codex/whats-new` | BL-020 and BL-021, merged into `main`; owner review before the 0.6.0 release. |
 
 The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since 0.5.0.
@@ -53,8 +53,8 @@ from passing tests or the presence of earlier code.
 
 ## Review artifact and validation
 
-`dist/Blue-Archive-Modding-and-Patching-Tool-0.6.0-alpha.11-macos-arm64.dmg`, MD5 `0c4cf26637dfafcd558b016c880c6e8e`,
-built from `a4feb779` (`chore(release): 0.6.0-alpha.11`).
+`dist/Blue-Archive-Modding-and-Patching-Tool-0.6.0-alpha.12-macos-arm64.dmg`, MD5 `8cf157b7e4fd475be8fa25afce5dceaf`,
+built from `00ef7aba` (`chore(release): 0.6.0-alpha.12`). For review: BL-057 (English "alt") and BL-058 (Import screen).
 
-On `main` before the build: 1,897 JavaScript tests passed; 3,273 Python tests passed, 26 skipped (with the official
+On `main` before the build: 1,919 JavaScript tests passed; 3,408 Python tests passed, 26 skipped (with the official
 development view). Native Windows behavior is not verified on the macOS host.
