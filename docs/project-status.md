@@ -8,7 +8,6 @@ As of 2026-10-29. Verify the actual branch, working tree and `pyproject.toml` ve
 | Branch | State |
 | --- | --- |
 | `main` | Local version `0.6.0-alpha.12`: the published 0.5.0 baseline, the upstream syncs after it, the 0.6.0-alpha.1 and alpha.2 review work, BL-020, BL-021, BL-040, BL-041, BL-043, BL-042, BL-044, BL-045, BL-046, BL-047, BL-048 the alpha.5 to alpha.8 review fixes and the prerelease-only BL-020/BL-021 previews (BL-037, BL-044, BL-047, BL-049 through BL-053), BL-055, BL-057 and BL-058. Not pushed. |
-| `codex/whats-new` | BL-020 and BL-021, merged into `main`; owner review before the 0.6.0 release. |
 
 The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since 0.5.0.
 
@@ -38,12 +37,11 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-046 | Closed by the owner without UAT (CLI-only) |
 | BL-048 | Accepted: CLI no longer built, installed or released |
 | BL-020 | Accepted by the owner on macOS (alpha.9, simulated prompt); Windows not reviewed |
-| BL-021 | Implemented for local review; owner UAT/visual acceptance pending. Settings' New Features row has no value label; geometry and empty-path placeholders are preserved. |
+| BL-021 | Accepted by the owner on macOS (alpha.12); Windows not reviewed |
 | BL-013, BL-019, BL-030 | Planned, not implemented |
 | BL-054 | Deferred by the owner for research; design proposal on file |
 | BL-056 | Funnel: AI-assisted portrait refinement, being refined |
-| BL-058 | Implemented for local review; owner acceptance pending (Import screen: empty list, after-import choices) |
-| BL-057 | Implemented for local review; owner acceptance pending (English "alt") |
+| BL-057, BL-058 | Accepted by the owner on macOS (alpha.12); Windows not reviewed |
 | BL-055 | Implemented for local review; owner UAT/visual acceptance pending. Loaded drop work cannot hold shutdown; early loop-exit trigger remains logged and unresolved. |
 | BL-014 | Candidate, not scheduled |
 | BL-016 through BL-018 | Deferred |

@@ -508,7 +508,7 @@ simulation, cannot install anything and must not exist in a stable build.
 
 ## BL-021: First-launch new-version feature tour
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending. Settings' New Features row omits its value label while preserving row geometry and empty-path placeholders.
+- Status: Accepted by the owner on macOS (alpha.12, 2026-10-29); Windows not reviewed.
 - Owner review of the 0.6.0 draft (2026-10-26): merge the photography and shared-gallery pages into one student
   thumbnail page (`学生详情全屏后增加大头照拍摄功能`), drop the release-notes page; publication awaits the owner's OK
   on the revised copy.
@@ -1355,7 +1355,7 @@ Owner decisions, continued (2026-10-27):
 
 ## BL-057: English calls alternate student versions "alts"
 
-- Status: Implemented for local review (2026-10-29); owner acceptance pending in the next test build.
+- Status: Accepted by the owner on macOS (alpha.12, 2026-10-29); Windows not reviewed.
 - Requested: 2026-10-29.
 
 The English interface called alternate versions of a student "variants" (the roster's Group Variants, the picker's
@@ -1365,7 +1365,7 @@ code keep "variant".
 
 ## BL-058: Batch import's empty list and after-import choices
 
-- Status: Implemented for local review (2026-10-29); owner acceptance pending in the next test build.
+- Status: Accepted by the owner on macOS (alpha.12, 2026-10-29); Windows not reviewed.
 - Requested: 2026-10-29.
 
 Owner findings on the Import screen:
