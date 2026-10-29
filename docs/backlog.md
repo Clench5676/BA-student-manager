@@ -1376,3 +1376,43 @@ Owner findings on the Import screen:
 - With no Mods added, the top-right "0 Mods" count is hidden.
 - "No Mods" and the drop hint under it are centred as one block on the grey frame's diagonal centre (Items/ListBG's
   paper centre), by the ink of the text, also with search open.
+
+## BL-059: Windows title bar: accent strip and native caption buttons
+
+- Status: Reported (2026-10-29, alpha.12 on Windows); design decision pending with the owner.
+- Requested: 2026-10-29.
+
+On Windows the native caption (BL-037's W1) shows a bar in the system accent colour along the top of the window, up
+to the minimize, maximize and close buttons on the right, which look out of place against the game-styled top bar.
+The owner asks whether the buttons can be redrawn or take the game's icons. Options: keep the native buttons and
+give the caption the top bar's colours (Windows 11 DWM caption and text colour attributes), or draw the buttons in
+the top bar from game sprites (the game has a close button, no minimize or maximize icons; Windows 11's snap layout
+flyout on the maximize button would be lost).
+
+## BL-060: Windows: blue lines at the stage edges during startup
+
+- Status: Reported (2026-10-29, alpha.12 on Windows); not started.
+- Requested: 2026-10-29.
+
+While Now Loading shows, a thin blue vertical line runs down each side, about 28 px in from the window edges of a
+1568-px-wide window: where a 16:9 stage would end in that window. Lead's reading: a sub-pixel seam where the stage's
+own background shows past the loading cover at a fractional stage offset (Windows display scaling). Needs checking.
+
+## BL-061: Windows: top bar background flickers while the window is resized
+
+- Status: Reported (2026-10-29, alpha.12 on Windows); not started.
+- Requested: 2026-10-29.
+
+Dragging the window wider or narrower makes the whole top bar background (`Common_Top_Menu_Bg`, drawn as one
+contiguous raster) flicker, as if it is cleared and redrawn on every resize step. It should keep the last drawn bar
+until the new one is ready.
+
+## BL-062: Windows: slow first launch of a new build crashes, then reloads itself
+
+- Status: Reported (2026-10-29, alpha.12 on Windows); waiting for the owner's logs.
+- Requested: 2026-10-29.
+
+The first launch after building alpha.12 on Windows took a long time and crashed again; before the error report
+could be opened, the App reloaded by itself and then ran normally. Related: BL-027 (first Windows startup failure)
+and BL-055 (macOS first-launch hang). Evidence needed: `webui.log`, `webui.1.log` and `webui.2.log` from the data
+folder beside the executable, copied before the next launches rotate them out.
