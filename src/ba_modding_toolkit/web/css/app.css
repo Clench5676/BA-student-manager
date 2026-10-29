@@ -326,6 +326,8 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 .loading.out { opacity: 0; transition-duration: .3s; }
 .loading.indicator { pointer-events: none; transition-duration: .2s; }
 .loading-back { position: absolute; inset: 0; background: #000; transition: opacity .15s ease; }
+/* UILoading/BlackBG covers fractional stage edges without exposing the blue stage underneath. */
+.loading.full .loading-back { inset: calc(0px - var(--cover-bleed, 2px)); }
 .loading.indicator .loading-back { opacity: 0; }
 .loading-ind, .loading-repeater { position: absolute; inset: 0; pointer-events: none; }
 /* UICharacterDetail's gradient sprites form the shared in-page inner shade. */
@@ -406,7 +408,7 @@ input[type="text"], input[type="search"], textarea { cursor: text; }
 #native-controls:hover, #native-controls:focus-within { opacity:1; }
 #native-controls button { width:36px; height:24px; color:var(--navy-text); background:#eaf5fb; font:18px/1 sans-serif; display:grid; place-items:center; }
 
-/* M1/W1 keep the same Common_Top_Menu_Bg and NGUI children, anchored to the window. */
+/* M1 keeps the same Common_Top_Menu_Bg and NGUI children, anchored to the window. */
 .window-header { position: fixed; left: 0; top: 0; width: 100%; z-index: 1000; }
 .native-chrome .topbar { transform-origin: top left; transition: none; padding-left: var(--native-left, 0px);
   font-family: var(--font); font-weight: var(--w); }

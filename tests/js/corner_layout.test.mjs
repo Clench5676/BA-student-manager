@@ -135,6 +135,7 @@ test('the real stage fitter spans the window with the non-native toolbar and cle
       Object.assign(globalThis, { innerWidth: width, innerHeight: height, bamtWindowChrome: null, bamtHeaderGeometry: null,
         document: { getElementById: () => stage, querySelector: () => bar } });
       fitStage();
+      near(parseFloat(stage.style["--cover-bleed"])*Number(stage.style["--scale"])*(globalThis.devicePixelRatio||1),1);
       near(g.stage.left + parseFloat(bar.style.left) * g.scale, 0);
       near(g.stage.top + parseFloat(bar.style.top) * g.scale, 0);
       near(parseFloat(bar.style.width) * g.scale, width);

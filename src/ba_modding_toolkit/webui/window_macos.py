@@ -48,6 +48,9 @@ class CocoaHost:
 
     def install(self):
         api, window = self.api, self.window
+        # This content policy is independent of M1 button alignment/rollback.
+        # AppKit applies it to interactive resizing, leaving fullscreen to the OS.
+        window.setContentAspectRatio_((16, 9))
         for kind in (api.NSWindowCloseButton, api.NSWindowMiniaturizeButton, api.NSWindowZoomButton):
             button = window.standardWindowButton_(kind)
             if button is None:

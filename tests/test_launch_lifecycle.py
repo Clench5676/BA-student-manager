@@ -52,7 +52,7 @@ def make_desktop(monkeypatch, tmp_path, platform):
 
     state = SimpleNamespace(block=None, entered=threading.Event(), resume=threading.Event(),
                             complete=threading.Event(), workers=[], deferred=[],
-                            registered=[], callbacks=[], run=lambda: None, platform=platform)
+                            registered=[], callbacks=[], chrome_installed=[], run=lambda: None, platform=platform)
 
     def evaluate(event):
         if threading.current_thread() not in state.workers:
@@ -83,8 +83,22 @@ def make_desktop(monkeypatch, tmp_path, platform):
         assert hooks.initialized.fire("edgechromium" if platform == "win32" else "wkwebview") == [True]
         hooks.before_show.fire()
         hooks.shown.fire()
+        # Initial shown refresh is independent of the async callbacks exercised below.
+        state.deferred.clear()
         return state.run()
 
+    # Lifecycle tests fake the native adapter as well as pywebview; no AppKit/.NET
+    # API is loaded. Windows installs before show, macOS after document attachment.
+    from ba_modding_toolkit.webui import window_macos, window_windows
+    class Host:
+        def __init__(self, window, owner): pass
+        def install(self): state.chrome_installed.append(threading.current_thread())
+        def dispatch(self, fn): state.deferred.append(fn)
+        def state(self): return dict(maximized=False, minimized=False, fullscreen=False)
+        def measure(self, layout): return None
+        def dispose(self): pass
+    monkeypatch.setattr(window_windows, "WindowsHost", Host)
+    monkeypatch.setattr(window_macos, "CocoaHost", Host)
     monkeypatch.setattr(main.sys, "platform", platform)
     monkeypatch.setattr(native, "webview2_version", lambda: "130.0.0.0")
     monkeypatch.setattr(native, "install_window_commands", commands)
@@ -272,7 +286,7 @@ def test_late_loaded_work_is_skipped_after_stop(desktop, caplog, stop_route):
     assert desktop.deferred == []
 
 
-def test_loaded_chrome_install_stays_on_gui_dispatch_and_skips_after_cleanup(desktop, monkeypatch):
+def test_chrome_installation_uses_platform_lifecycle_and_skips_after_cleanup(desktop, monkeypatch):
     desktop.window.native = SimpleNamespace(BeginInvoke=desktop.deferred.append)
     installed = []
 
@@ -280,14 +294,22 @@ def test_loaded_chrome_install_stays_on_gui_dispatch_and_skips_after_cleanup(des
         monkeypatch.setattr(desktop.services.chrome, "install", lambda: installed.append(threading.current_thread()))
         desktop.window.events.loaded.fire()
         wait_loaded(desktop)
-        assert len(desktop.deferred) == (2 if desktop.platform == "darwin" else 1)
-        desktop.deferred[0]()
-        assert installed == [threading.current_thread()]
+        assert len(desktop.deferred) == (2 if desktop.platform == "darwin" else 0)
+        if desktop.platform == "darwin":
+            assert desktop.chrome_installed == []
+            desktop.deferred[0]()
+            assert installed == [threading.current_thread()]
+        else:
+            assert desktop.chrome_installed == [threading.current_thread()]
+            assert installed == []
 
     desktop.run = load
     run_window(desktop)
-    desktop.deferred[0]()
-    assert len(installed) == 1
+    if desktop.platform == "darwin":
+        desktop.deferred[0]()
+        assert len(installed) == 1
+    else:
+        assert installed == []
 
 
 def test_other_async_window_handlers_only_enqueue_gui_work(desktop):

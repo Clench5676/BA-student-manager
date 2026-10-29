@@ -65,9 +65,9 @@ async function settle(){for(let i=0;i<8;i++){frames.splice(0).forEach(fn=>fn());
 const payload=()=>calls.filter(c=>c.name==='window.layout').at(-1).value;
 const change=async()=>{listeners.resize();await settle();};
 test('native and fallback controllers hide and restore every immersive scene and block popup dragging',async()=>{
-  setupWindowChrome();await settle();
+  setupWindowChrome();assert.equal(doc.getElementById('native-controls'),undefined);await settle();
   assert.ok(observed.some(({target,opts})=>target===root&&opts.attributeFilter.includes('class')));
-  for(const platform of ['darwin','win32']){
+  for(const platform of ['darwin']){
     snapshot={...snapshot,sequence:snapshot.sequence+1,platform,bounds:platform==='darwin'?{left:12,top:8,right:80,bottom:30}:{left:812,top:0,right:960,bottom:32}};
     handlers['window.chrome'](snapshot);await settle();
     assert.ok(body.classList.has('native-chrome'));assert.equal(doc.getElementById('native-controls'),undefined);
@@ -100,4 +100,22 @@ test('native and fallback controllers hide and restore every immersive scene and
   popup.hidden=false;await change();assert.equal(body.querySelectorAll('.window-drag-region').length,0);
   popup.hidden=true;root.classList.clear();await change();
   assert.equal(body.classList.has('window-immersive'),false);assert.equal(body.querySelectorAll('.window-drag-region').length,0);
+});
+
+test('standard Windows title bar leaves the prefab in the stage without native clearance or HTML buttons',async()=>{
+  for(const active of [true,false]){
+    snapshot={active,valid:active,platform:'win32',mode:'standard',bounds:null,sequence:snapshot.sequence+1};
+    handlers['window.chrome'](snapshot);await settle();
+    assert.equal(header.parent,stage);
+    assert.equal(body.classList.has('native-chrome'),false);
+    assert.equal(globalThis.bamtHeaderGeometry,null);
+    assert.equal(globalThis.bamtWindowChrome,null);
+    assert.equal(doc.getElementById('native-controls'),undefined);
+    assert.equal(header.inert,false);
+    for(const immersive of [true,false]){
+      stage.classList.toggle('fullscreen',immersive);await change();
+      assert.equal(body.classList.has('window-immersive'),immersive);
+      assert.equal(body.querySelectorAll('.window-drag-region').length,0);
+    }
+  }
 });

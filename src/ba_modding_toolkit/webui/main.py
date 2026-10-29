@@ -213,11 +213,11 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
     webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
     with s.timings.measure("native.create-window"):
         window = webview.create_window(t("ui.app_title"), server.url, width=1600, height=900, min_size=(960, 540),
-                                       background_color="#000000", text_select=True, frameless=True, easy_drag=False)
+                                       background_color="#000000", text_select=True, frameless=sys.platform != "win32", easy_drag=False)
     s.window = window
     from .window_chrome import WindowChrome
     from .window_close import CloseCoordinator
-    s.chrome = WindowChrome(window, s.events)
+    s.chrome = WindowChrome(window, s.events, platform=sys.platform)
     s.close_coordinator = CloseCoordinator(s, s.chrome.close, page_loaded=False)
     commands = None
     lifecycle = {"shown": False, "loaded": False, "closing": False, "closed": False, "drops": "not-started"}
@@ -226,6 +226,8 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
     def before_show():
         nonlocal commands
         logger.info("Native lifecycle: before-show begin")
+        if sys.platform == "win32":
+            s.chrome.install()
         if sys.platform == "darwin":
             commands = native.install_window_commands(s, s.chrome)
         logger.info("Native lifecycle: before-show complete")
@@ -267,10 +269,6 @@ def _run_window(s: Services, server: Server, debug: bool) -> None:
         if window_stopped.is_set():
             logger.info("Native lifecycle: loaded skipped stopped=True")
             return
-        if sys.platform == "win32" and s.chrome.host is None:
-            # WebView2 Settings exists after initialization, not at before_show.
-            from System import Action
-            window.native.BeginInvoke(Action(install_chrome))
         if sys.platform == "darwin" and getattr(window, "native", None) is not None:
             # Cocoa replaces its placeholder contentView when navigation finishes.
             from PyObjCTools import AppHelper

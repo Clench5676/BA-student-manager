@@ -2,6 +2,77 @@
 
 Status: Implemented for local review; owner UAT/visual acceptance pending.
 
+## Current Windows policy (BL-059, 2026-10-29)
+
+Status: Implemented for local review; owner acceptance on Windows pending.
+
+Windows now uses pywebview's normal resizable system title bar (`frameless=False`). `WindowsHost` leaves the
+non-client area, caption painting, resize hit testing and WebView child bounds to WinForms/Windows. It no longer
+extends the client area, clips the child, reloads navigation or depends on WebView2's optional non-client API.
+Installation runs at `before_show`, independently of document loading. Native state notifications and guarded
+close routes remain. The `window.chrome` snapshot exposes `mode: "standard"`, including before installation or
+after adapter failure, so the web controller keeps the prefab toolbar in the stage and suppresses HTML window
+buttons without reserving caption space in the App. macOS retains M1; BL-060 below adds the content-aspect policy.
+
+Fake-host and Node tests cover window creation, state/cleanup, adapter failure and standard-caption layout with
+no duplicate controls. Windows caption appearance, native resize, Snap Layouts, DPI changes and guarded native
+close still require owner acceptance. The W1 material below is historical and superseded by this policy.
+
+## Content aspect and letterbox coverage (BL-060)
+
+Status: Implemented for local review; owner acceptance on Windows pending.
+
+`window_windows.py::aspect_rect` corrects the physical outer RECT in `WM_SIZING`, subtracting the actual style's
+DPI-adjusted non-client dimensions from `AdjustWindowRectExForDpi`. Left/right edges drive client width; top/bottom
+edges drive client height; corners project onto the closest 16:9 size. The opposite edges remain anchored,
+including at negative screen origins. The content minimum is 960 x 540 CSS pixels, converted at the current DPI
+and augmented by the native frame for WinForms' `MinimumSize`. Integer RECTs introduce at most half a physical
+pixel of dependent-dimension rounding. Initial 1600 x 900 dimensions now describe the client area, excluding the
+standard title bar. `WM_DPICHANGED` first forwards to WinForms, then updates the minimum and normal-window aspect;
+maximized, minimized and fullscreen windows retain OS geometry. Handle recreation reinstalls the retained public
+comctl32 subclass. Every other message, including native hit testing and guarded close, forwards unchanged and
+at most once, even if a post-default policy call fails.
+
+`CocoaHost.install` sets the public `NSWindow.contentAspectRatio` to 16:9 before M1 setup. The ratio is a window
+policy and survives button-alignment rollback; standard buttons, drag events, commands and fullscreen reveal
+retain their existing behavior. No substitute controls or private APIs are introduced.
+
+`window-layout.js::headerGeometry` fits the stage to the full client area without reserving extra height beneath
+the native toolbar's minimum row. This avoids introducing side bars into a 16:9 client at minimum size. The row's
+existing sprite geometry, minimum height and fill center remain. `util.js::fitStage` supplies a one-device-pixel
+bleed to `UILoading/BlackBG` through `--cover-bleed`; only full opaque loading backdrops expand. This covers the
+antialiasing footprint of the blue stage at fractional origins, including letterboxed maximize/fullscreen; the
+viewport's existing black background remains the letterbox color. The stage, scene art, controls and capture
+coordinates are not stretched or clipped by this coverage adjustment.
+
+Fake-host tests cover every dragged edge/corner at 96/120/144/192/288 DPI, minimum sizes, startup client sizing,
+DPI changes, handle recreation, standard non-client forwarding, failure cleanup and macOS aspect setting. Node
+tests cover minimum/default/large 16:9 clients, wide/tall letterboxing, fractional origins and DPR 1/1.25/1.5/2/3.
+Windows and macOS native resizing/painting still require owner acceptance; no native app was run.
+
+## Top-bar raster publication (BL-061)
+
+Status: Implemented for local review; owner acceptance on Windows pending.
+
+`top-bar-background.js::createTopBarPainter` keeps one queue per element. Resize bursts replace the pending scale
+and DPI request, and the next animation frame measures the latest bar geometry. Only one raster is in flight;
+newer requests during encoding/decoding wait for a later animation frame. The existing contiguous NGUI raster
+retains `UICharacterCollection/SeletControl/Top/BG_W/Bg`, `Common_Top_Menu_Bg`, its 310/20 source cuts and 172/11
+stage-pixel caps. A replacement must finish `Image.decode()` before changing the background URL. The old image
+and URL stay retained throughout; outdated completions and encoding/decoding failures cannot clear or replace it.
+
+Node tests gate raster encoding and image decoding separately, assert no intermediate background writes, and
+exercise burst coalescing, requests during decode, stale completions, failure/retry, hidden bars and independent
+elements. Native WebView2 presentation and absence of visible flicker remain the owner's Windows review.
+
+### Automated validation for BL-059 through BL-061
+
+Full suites: **3,556 Python tests passed, 27 skipped; 1,934 Node tests passed**. Native requests and lifecycle
+coverage live in `tests/test_window_chrome.py`, `tests/test_webui.py` and `tests/test_launch_lifecycle.py`.
+Web coverage lives in `tests/js/window_chrome.test.mjs`, `window_layout.test.mjs`, `corner_layout.test.mjs` and
+`top_bar_background.test.mjs`. Locale files are unchanged. These checks do not establish native Windows visual
+acceptance; no native application, screenshot, preview or package build was run.
+
 ## Owner-approved experiment (2026-10-26)
 
 The experiment follows M1/W1 and the owner decisions in BL-037. The design research below is retained as historical
