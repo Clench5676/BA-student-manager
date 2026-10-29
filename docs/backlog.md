@@ -1362,3 +1362,17 @@ The English interface called alternate versions of a student "variants" (the ros
 Select Variant, errors and the character name help). The owner checked the English-speaking community, which says
 "alt". All English texts now say alt (Group Alts, Select Alt, Alt not found, In use by another alt); locale keys and
 code keep "variant".
+
+## BL-058: Batch import's empty list and after-import choices
+
+- Status: Implemented for local review (2026-10-29); owner acceptance pending in the next test build.
+- Requested: 2026-10-29.
+
+Owner findings on the Import screen:
+
+- Select for Preview and Apply to Game were squeezed between the list and the footer buttons (shrunk, overlapping
+  them). Owner decision: move them into Advanced Options, replacing BL-003's placement above Import. They lead the
+  popup as On/Off rows like its other switches; saved values and defaults are unchanged.
+- With no Mods added, the top-right "0 Mods" count is hidden.
+- "No Mods" and the drop hint under it are centred as one block on the grey frame's diagonal centre (Items/ListBG's
+  paper centre), by the ink of the text, also with search open.
