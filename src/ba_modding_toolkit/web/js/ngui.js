@@ -738,6 +738,20 @@ export function inkShift(str, px, { reference = false } = {}) {
   return [ascent, descent, fontAscent, fontDescent].every(Number.isFinite) ? (ascent - descent - fontAscent + fontDescent) / 2 : 0;
 }
 
+// The ink of text drawn at px CSS pixels in a label box: its top and bottom as offsets (down) from the box's centre, the
+// extent the eye sees (first line's ascent to last line's descent, lines at NGUI's 1.15 pitch, centred as inkShift
+// describes). Without font metrics, the em box of the lines.
+export function inkBand(str, px) {
+  const lines = String(str).split("\n");
+  measureCtx.font = `500 ${px}px ${fontStack()}`;
+  const ascent = measureCtx.measureText(lines[0]).actualBoundingBoxAscent;
+  const descent = measureCtx.measureText(lines.at(-1)).actualBoundingBoxDescent;
+  const span = (lines.length - 1) * px * 1.15;
+  if (![ascent, descent].every(Number.isFinite)) return { top: -(px + span) / 2, bottom: (px + span) / 2 };
+  const centre = -inkShift(str, px), half = (ascent + descent + span) / 2;
+  return { top: centre - half, bottom: centre + half };
+}
+
 // fitGroup into the label widgets of one group: each one's text and size (the same for all), and its box at least maxW wide
 export function fitLabels(widgets, strs, fsMax, fsMin, maxW, maxLines = 2, opts = {}) {
   const fits = fitGroup(strs, fsMax, fsMin, maxW, maxLines, { lang: widgets[0]?.lang, ...opts });

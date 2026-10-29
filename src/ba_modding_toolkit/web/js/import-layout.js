@@ -14,6 +14,19 @@ export const ROW_SCALE = 0.54, ROW_WIDTH = 2208 * ROW_SCALE, ROW_HEIGHT = 348 * 
 export const ROW_TEXT_SIZE = 42, ROW_TEXT_TOP = 20;
 export const ROW_CHECK_TOP = 329 * ROW_SCALE / 2 - ROW_TEXT_TOP * ROW_SCALE;
 export const ROW_SELECTION = { left: 19, top: 8, width: 164, height: 160, scale: 0.68, origin: [82, 80] };
+// Items/ListBG: its PaperBG and Inbox sit 60 units below the panel's centre, so that is the middle of the grey frame
+// (header strip and toolbar included), in panel px.
+export const PAPER_CENTRE = (S) => [636, 352 + 60 * S];
+export const EMPTY_GAP = 85;      // between the centres of Items' ListEmpty message and the drop hint under it
+
+// The box centres (px, down) of the ListEmpty message and the drop hint under it (null: none) that put the block's ink
+// centre on `centre`, as the eye takes the middle of the list. title, note: each label's ink as offsets of its top and
+// bottom from its box centre (NGUI.inkBand).
+export function emptyBlock(centre, title, note = null, gap = EMPTY_GAP) {
+  const bottom = note ? gap + note.bottom : title.bottom;
+  const first = centre - (title.top + bottom) / 2;
+  return { title: first, note: note ? first + gap : null };
+}
 const rowGap = (ui, layouts) => 348 - ui.find(layouts.UIMailBoxContent, "List_01/BG").widgets.find((w) => "sprite" in w).h_;
 
 // Include child widgets, their pivots and inclined overhangs in the selection frame's drawn edge.

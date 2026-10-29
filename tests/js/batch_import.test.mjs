@@ -70,7 +70,7 @@ globalThis.IntersectionObserver = class {
 };
 const { createImportPage, entryIdentity, catalogEntries } = await import("../../src/ba_modding_toolkit/web/js/batch-import.js");
 const { importAssistants, suggestImports } = await import("../../src/ba_modding_toolkit/web/js/import-assistants.js");
-const { importArtwork, clipButtonPatterns, selectionWindow, ROW_SELECTION, ROW_SCALE, ROW_WIDTH, ROW_HEIGHT } = await import("../../src/ba_modding_toolkit/web/js/import-layout.js");
+const { importArtwork, clipButtonPatterns, selectionWindow, ROW_SELECTION, ROW_SCALE, ROW_WIDTH, ROW_HEIGHT, PAPER_CENTRE, EMPTY_GAP, emptyBlock } = await import("../../src/ba_modding_toolkit/web/js/import-layout.js");
 const { frameOutline } = await import("../../src/ba_modding_toolkit/web/js/row-thumbnail.js");
 const { ROW_W: OPTION_WIDTH, rowBase, radioRow } = await import("../../src/ba_modding_toolkit/web/js/settings-rows.js");
 const { S } = await import("../../src/ba_modding_toolkit/web/js/util.js");
@@ -178,25 +178,52 @@ async function fixture({ licensed = false, native = true, suggest, countIcons = 
 test("empty screen has add actions and zero Mods, without AI UI or tooltips", async () => {
   const h = await fixture();
   assert.equal(h.phase(), "idle"); assert.match(h.host.textContent, /No Mods/);
-  assert.match(h.host.textContent, /0 Mods/); assert.equal(h.action("start").disabled, true);
+  assert.doesNotMatch(h.host.textContent, /0 Mods/); assert.equal(h.host.querySelector(".import-count").hidden, true);
+  assert.equal(h.action("start").disabled, true);
   assert.equal(h.action("files").disabled, false); assert.equal(h.action("folder").disabled, false);
   assert.doesNotMatch(h.host.textContent, /AI|master switch|step/i);
   assert.ok(walk(h.host).every((element) => !element.getAttribute("title")));
 });
 
-test("preview and game checkboxes save independent choices outside advanced options", async () => {
+test("preview and game choices lead Advanced Options as On/Off rows and save independently", async () => {
   const h = await fixture();
-  const checks = h.host.querySelectorAll("input").filter((input) => input.dataset.importOption);
-  assert.equal(checks.length, 2);
-  const preview = checks.find((input) => input.dataset.importOption === "previewAfterImport");
-  const apply = checks.find((input) => input.dataset.importOption === "enableAfterImport");
-  assert.equal(preview.checked, false); assert.equal(apply.checked, true);
-  preview.checked = true; await preview.dispatch("change"); await flush();
-  assert.equal(h.page.model.state.options.previewAfterImport, true);
-  assert.equal(h.page.model.state.options.enableAfterImport, true);
-  apply.checked = false; await apply.dispatch("change"); await flush();
+  assert.doesNotMatch(h.host.textContent, /Select for Preview|Apply to Game/, "not on the page itself");
+  await h.page.openOptions(); await h.page.settled();
+  const groups = walk(h.dialog).filter((element) => element.dataset.option).slice(0, 2);
+  assert.deepEqual(groups.map((group) => group.dataset.option), ["previewAfterImport", "enableAfterImport"]);
+  assert.deepEqual(groups.map((group) => group.getAttribute("aria-label")), ["Select for Preview", "Apply to Game"]);
+  const choice = (group, value) => walk(group).find((element) => element.dataset.value === value);
+  assert.equal(choice(groups[0], "false").getAttribute("aria-checked"), "true", "preview selection defaults off");
+  assert.equal(choice(groups[1], "true").getAttribute("aria-checked"), "true", "application keeps its saved on");
+  await choice(groups[0], "true").click(); await choice(groups[1], "false").click();
+  await h.action("ok", h.dialog).click(); await flush();
+  const saved = h.calls.filter((call) => call.method === "import.setOptions").at(-1).params;
+  assert.equal(saved.previewAfterImport, true); assert.equal(saved.enableAfterImport, false);
   assert.equal(h.page.model.state.options.previewAfterImport, true);
   assert.equal(h.page.model.state.options.enableAfterImport, false);
+});
+
+test("the empty list's message and drop hint centre on the grey frame, with or without search, and no count shows", async () => {
+  const h = await fixture();
+  const [cx, cy] = PAPER_CENTRE(S);
+  const centre = (element) => { const [x, y, w, hh] = rectOf(element); return [x + w / 2, y + hh / 2]; };
+  for (const searching of [false, true]) {
+    if (searching) { await h.action("searchToggle").click(); await h.page.settled(); }
+    const list = h.host.querySelector(".import-list"), [, top] = rectOf(list);
+    const [title, note] = h.host.querySelector(".import-empty").children.map(centre);
+    // the stand-in canvas has no ink metrics: each label's ink is its em box, both at the same size
+    closeTo(title[0] + 26, cx); closeTo(note[0] + 26, cx);
+    closeTo(note[1] - title[1], EMPTY_GAP);
+    closeTo(top + (title[1] + note[1]) / 2, cy);
+    assert.equal(h.host.querySelector(".import-count").hidden, true);
+  }
+});
+
+test("the empty block puts its ink centre on the frame's centre", () => {
+  const at = emptyBlock(300, { top: -20, bottom: 8 }, { top: -10, bottom: 12 }, 85);
+  closeTo(((at.title - 20) + (at.note + 12)) / 2, 300); closeTo(at.note - at.title, 85);
+  const single = emptyBlock(300, { top: -20, bottom: 8 });
+  closeTo(single.title + (-20 + 8) / 2, 300); assert.equal(single.note, null);
 });
 
 test("Remove Imported keeps pending and failed rows and never calls a library mutation", async () => {
@@ -985,7 +1012,7 @@ test("every page action swaps its whole disabled prefab, including both dotted p
 test("advanced boolean, choice, resource and input rows share Settings' body, title, dotted line and spacing", async () => {
   const h = await fixture(); await h.page.openOptions(); await h.page.settled();
   const groups = walk(h.dialog).filter((element) => element.dataset.option);
-  assert.equal(groups.length, 9);
+  assert.equal(groups.length, 11);
   for (const group of groups) {
     const { tree, opts } = drawn(h, group), key = group.dataset.option;
     const height = parseFloat(group.style.height) / S;
@@ -996,7 +1023,7 @@ test("advanced boolean, choice, resource and input rows share Settings' body, ti
     assert.equal(opts.scale, S); closeTo(parseFloat(group.style.width), OPTION_WIDTH * S);
     closeTo(parseFloat(group.style.marginBottom), 24 * S);
   }
-  assert.equal(groups.find((group) => group.dataset.option === "enableAfterImport"), undefined);
+  assert.deepEqual(groups.slice(0, 2).map((group) => group.dataset.option), ["previewAfterImport", "enableAfterImport"]);
   const enable = groups.find((group) => group.dataset.option === "backup");
   assert.equal(enable.querySelector("input"), null, "boolean options show labelled On/Off choices");
   const off = walk(enable).find((element) => element.dataset.value === "false");
@@ -1116,14 +1143,17 @@ test("empty, full, filtered and long Thai toolbars fit the header, with search a
         closeTo(cx + cw, lx + 1192.32); closeTo(cy + ch / 2, (352 + 60 * S - (704 / S - 152) * S / 2 + 202) / 2); assert.ok(cy + ch < ly);
         assert.equal(count.parentNode, panel, "count never scrolls with rows");
         assert.ok(cy > headerBottom); assert.ok(ly + lh < parseFloat(h.action("files").style.top));
-        const countBounds = artworkBounds(h, count)[0];
-        closeTo(countBounds[0], 0); closeTo(countBounds[1], 0); closeTo(countBounds[2], cw); closeTo(countBounds[3], ch);
+        assert.equal(count.hidden, !h.page.model.state.entries.length, "no count over an empty list");
+        if (!count.hidden) {
+          const countBounds = artworkBounds(h, count)[0];
+          closeTo(countBounds[0], 0); closeTo(countBounds[1], 0); closeTo(countBounds[2], cw); closeTo(countBounds[3], ch);
+        }
         const wrap = h.host.querySelector(".import-input-wrap");
         if (!wrap.hidden) {
           const [sx, sy, sw, sh] = rectOf(wrap);
           assert.ok(sx >= 0 && sx + sw <= width); assert.ok(sy > cy && sy + sh < ly);
         }
-        for (const n of [find(drawn(h, header).tree, "Label_Locale_Title"), find(drawn(h, header).tree, "SortBtn/Btn_Normal/Type_2/Text"), drawn(h, count).tree]) {
+        for (const n of [find(drawn(h, header).tree, "Label_Locale_Title"), find(drawn(h, header).tree, "SortBtn/Btn_Normal/Type_2/Text"), ...(count.hidden ? [] : [drawn(h, count).tree])]) {
           const label = n.widgets.find((w) => "text" in w);
           assert.equal(label.ellipsis, true); assert.ok(!label.text.includes("\n"));
         }
@@ -1170,11 +1200,12 @@ test("all six locales retain option labels, On/Off choices and the same saved va
       const strings = load(locale); setStrings(locale, strings);
       const h = await fixture(); await h.page.openOptions(); await h.page.settled();
       for (const group of walk(h.dialog).filter((element) => element.dataset.option)) {
-        const key = group.dataset.option, title = strings[`webui.import.options.${key}`];
+        const own = { previewAfterImport: "webui.import.selectPreview", enableAfterImport: "webui.import.applyGame" };
+        const key = group.dataset.option, title = strings[own[key] || `webui.import.options.${key}`];
         assert.ok(title, `${locale}: ${key}`);
         assert.ok(group.textContent.includes(title), `${locale}: visible ${key}`);
         if (["extraBytes", "workers", "output"].includes(key)) assert.equal(group.querySelector("input").getAttribute("aria-label"), title);
-        if (["backup", "skipUnchanged", "enableAfterImport"].includes(key)) {
+        if (["backup", "skipUnchanged", "previewAfterImport", "enableAfterImport"].includes(key)) {
           assert.equal(group.getAttribute("aria-label"), title);
           const controls = group.querySelectorAll("button");
           assert.deepEqual(controls.map((control) => control.getAttribute("aria-label")), [strings["webui.settings.post.on"], strings["webui.settings.post.off"]]);
