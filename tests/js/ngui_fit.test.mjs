@@ -23,7 +23,7 @@ globalThis.document = {
 };
 globalThis.getComputedStyle = (el) => ({ getPropertyValue: () => /^th(?:-|$)/.test(el.lang)
   ? /:lang\(th\)\s*\{\s*--font:\s*([^;]+);/.exec(css)?.[1] || "" : "" });
-const { LINE_PITCH, fitGroup, fitLabel, fitLabels, fitRow, fitText, fontSizeFor, glyphWidth, inkReference, inkShift, textWidth } = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
+const { LINE_PITCH, fitGroup, fitLabel, fitLabels, fitRow, fitText, fontSizeFor, glyphWidth, inkBand, inkReference, inkShift, textWidth } = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
 
 const BAD_START = /^[、。，．：；！？）」』】〉》…‥ーぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ〜～,.!?)]/;
 const BAD_END = /[（「『【〈《(]$/;
@@ -290,4 +290,13 @@ test("a reference glyph gives every Latin or Thai title of a script one baseline
   near(a, (0.72 - 0 - 1.16 + 0.29) * px / 2);
   // without the option the letters' own ink counts
   assert.ok(inkShift("gyp", px) !== a);
+});
+
+test("inkBand gives the ink's top and bottom around the box centre, lines at the 1.15 pitch", () => {
+  const px = 20, near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} vs ${b}`);
+  // stand-in metrics: ink 0.72 px above the baseline, 0.2 px below for a descender; the font box 1.16 above, 0.29 below
+  const band = inkBand("Hg", px), shift = inkShift("Hg", px);
+  near(band.top, -shift - (0.72 + 0.2) * px / 2); near(band.bottom, -shift + (0.72 + 0.2) * px / 2);
+  const two = inkBand("H\ng", px);
+  near(two.bottom - two.top, (0.72 + 0.2 + 1.15) * px); near((two.top + two.bottom) / 2, -inkShift("H\ng", px));
 });

@@ -14,7 +14,8 @@ import { thumbnailScope, forget } from "./thumbs.js";
 import { modelThumbnail } from "./model-still.js";
 import { S } from "./util.js";
 import { ROW_W as OPTION_WIDTH, rowBase, radioRow } from "./settings-rows.js";
-import { loadImportLayouts, importArtwork, clipButtonPatterns, ROW_SCALE, ROW_WIDTH, ROW_HEIGHT, ROW_SELECTION, ROW_CHECK_TOP } from "./import-layout.js";
+import { loadImportLayouts, importArtwork, clipButtonPatterns, ROW_SCALE, ROW_WIDTH, ROW_HEIGHT, ROW_SELECTION, ROW_CHECK_TOP,
+  PAPER_CENTRE, emptyBlock } from "./import-layout.js";
 import { suggestImports } from "./import-assistants.js";
 import { createImportState, countsOf, eligible, RESOURCE_TYPES, STATES } from "./import-state.js";
 import { characterPicker } from "./character-picker.js";
@@ -49,7 +50,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   let context = null, catalog = [], visible = false, root = null, scope = null;
   let query = "", filter = "all", ascending = true, searchOpen = false, rowsKey = null, previewKey = null, generation = 0;
   let rows = new Map(), identities = new WeakMap(), dom = {}, dialogClose = null, countsKey = null;
-  let art = null, merged = false, shownError = null;
+  let art = null, merged = false, shownError = null, listTop = 202;
   const thumbnailJobs = new Map();
   const liveVersions = new Map(), refreshedResults = new WeakSet();
   let listGeneration = 0, liveRefreshPending = false;
@@ -147,6 +148,7 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   function setCaption(b, caption) {
     b.caption = caption; b.setAttribute("aria-label", caption); b.refresh();
   }
+  const EMPTY_BOX = [1200, 100];   // each empty-list label's box (px), its text centred in it
   // Buttons side by side share one caption size: the list's seven tools, and Advanced Options with Recheck.
   const TOOLBAR = [["files", "addFiles", 26, 174], ["folder", "addFolder", 210, 190], ["all", "all", 410, 126], ["none", "none", 546, 140],
     ["remove", "remove", 696, 150], ["removeImported", "removeImported", 856, 224], ["clear", "clear", 1090, 156]];
@@ -279,14 +281,6 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     place(dom.options, 958, footerY - 40.5, 290, 81); place(dom.recheck, 1272, footerY - 40.5, 230, 81);
     place(dom.start, 1528, footerY - 49.8, 330, 99.6);
     root.append(dom.options, dom.recheck, dom.start);
-    for (const [key, label, x] of [["previewAfterImport", "selectPreview", 1250], ["enableAfterImport", "applyGame", 1560]]) {
-      const control = checkbox(T(`import.${label}`), !!model.state.options?.[key], (value) => {
-        model.saveOptions({ ...model.state.options, [key]: value });
-      }, { labelWidth: 380 });
-      place(control.label, x, 817, 460, 50); control.label.style.transformOrigin = "top left";
-      control.input.dataset.importOption = key;
-      control.label.style.transform = "scale(0.65)"; root.appendChild(control.label); dom[key] = control;
-    }
     root.addEventListener("click", (event) => {
       const target = event.target.closest?.("[data-action]");
       if (!target || target.disabled) return;
@@ -319,6 +313,18 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     const stripTop = paperTop;
     place(dom.count, 26 + ROW_WIDTH - 250, (stripTop + 202) / 2 - 16, 250, 32);
     place(dom.list, 26, top, 1220, 616 - top);
+    listTop = top; placeEmpty();
+  }
+  // Items' ListEmpty message, with the drop hint under it while nothing is added: one block whose ink centre sits on the
+  // middle of the grey frame (diagonal centre, header strip and toolbar included), wherever the list starts.
+  function placeEmpty() {
+    if (!dom.empty) return;
+    const [x, y] = PAPER_CENTRE(S), { title, note } = dom.empty;
+    const ink = (part) => part && NGUI.inkBand(part.text, part.px);
+    const at = emptyBlock(y - listTop, ink(title), ink(note));
+    for (const [part, centre] of [[title, at.title], [note, at.note]]) {
+      if (part) place(part.element, x - 26 - EMPTY_BOX[0] / 2, centre - EMPTY_BOX[1] / 2, ...EMPTY_BOX);
+    }
   }
   function renderToolbar() {
     const options = filterOptions(), caption = options.find(([value]) => value === filter)?.[1] || options[0][1];
@@ -592,15 +598,17 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     if (key !== rowsKey) {
       rowsKey = key; const previous = rows; rows = new Map();
       const token = ++listGeneration, page = generation;
-      const contents = [];
+      const contents = []; dom.empty = null;
       if (!entries.length) {
-        const empty = place(el("div", "import-empty"), 0, 120, 1200, 180);
-        textWidget(empty, T(model.state.entries.length ? "import.noMatch" : "import.empty"), "empty", { origin: [600, 40] });
-        if (!model.state.entries.length) {
-          const note = place(el("div"), 0, 80, 1200, 100); empty.appendChild(note);
-          textWidget(note, T("import.drop"), "empty", { scale: 0.5, origin: [600, 45] });
-        }
-        contents.push(empty);
+        const empty = el("div", "import-empty");
+        const part = (caption) => {
+          const element = el("div"), label = art.empty(caption).widgets.find((w) => "text" in w);
+          textWidget(element, caption, "empty", { scale: 0.5, origin: [EMPTY_BOX[0] / 2, EMPTY_BOX[1] / 2] });
+          empty.appendChild(element); return { element, text: label.text, px: label.fontSize * 0.5 };
+        };
+        dom.empty = { title: part(T(model.state.entries.length ? "import.noMatch" : "import.empty")),
+          note: model.state.entries.length ? null : part(T("import.drop")) };
+        placeEmpty(); contents.push(empty);
       }
       for (const group of groups) {
         const entry = representative(group.entries);
@@ -656,12 +664,10 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
   function render() {
     if (!visible || !root) return;
     const state = model.state, busy = model.busy(); root.dataset.phase = state.phase; root.setAttribute("aria-busy", String(busy));
-    textWidget(dom.count, T("import.count", { n: state.entries.length }), "count", { scale: 0.5, origin: [250, 16] });
+    dom.count.hidden = !state.entries.length;     // no count over an empty list
+    if (state.entries.length) textWidget(dom.count, T("import.count", { n: state.entries.length }), "count", { scale: 0.5, origin: [250, 16] });
     renderToolbar();
     dom.merge.input.disabled = busy; dom.merge.refresh();
-    for (const key of ["previewAfterImport", "enableAfterImport"]) {
-      dom[key].input.checked = !!state.options?.[key]; dom[key].input.disabled = busy || !state.options; dom[key].refresh();
-    }
     for (const key of ["files", "folder", "options", "clear", "remove", "removeImported", "all", "none", "recheck"]) dom[key].disabled = busy;
     dom.removeImported.disabled ||= !state.entries.some((entry) => ["done", "library", "installed"].includes(entry.state));
     dom.clear.disabled ||= !state.entries.length; dom.remove.disabled ||= !state.selected;
@@ -687,7 +693,6 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
     dom.searchWrap.querySelector("button")?.setAttribute("aria-label", T("display.reset"));
     dom.list.setAttribute("aria-label", T("import.list"));
     dom.merge.relabel(T("import.merge"));
-    dom.previewAfterImport.relabel(T("import.selectPreview")); dom.enableAfterImport.relabel(T("import.applyGame"));
     for (const [key, label] of [["files", "addFiles"], ["folder", "addFolder"], ["all", "all"], ["none", "none"],
       ["remove", "remove"], ["removeImported", "removeImported"], ["clear", "clear"], ["options", "options.title"], ["recheck", "recheck"]]) setCaption(dom[key], T(`import.${label}`));
     shareSizes();
@@ -792,6 +797,9 @@ export function createImportPage({ host, call = rpc, jobs = waitJob, ui = NGUI, 
         refresh(); return refresh;
       };
       const onOff = [[true, T("settings.post.on")], [false, T("settings.post.off")]];
+      for (const [key, label] of [["previewAfterImport", "selectPreview"], ["enableAfterImport", "applyGame"]]) {
+        choice(key, T(`import.${label}`), onOff, () => !!draft[key], (value) => { draft[key] = value; });
+      }
       for (const key of ["skipUnchanged", "backup"]) {
         choice(key, T(`import.options.${key}`), onOff, () => draft[key], (value) => { draft[key] = value; });
       }
