@@ -4,9 +4,11 @@ import { barCentre } from "./top-bar-layout.js";
 export function headerGeometry(width, height, nativeBottom = 0, immersive = false) {
   const scale = Math.min(width / 1920, height / 1080);
   const rowHeight = Math.max(64 * scale, 44, nativeBottom + 4);
-  const extra = immersive ? 0 : Math.max(0, rowHeight - 64 * scale);
+  // The native row overlays the stage, as the prefab bar does. Reserving extra
+  // height would letterbox an otherwise 16:9 client area at the minimum size.
+  const extra = 0;
   return { scale, rowHeight, centre: barCentre(undefined, rowHeight), extra,
-    contentScale: Math.min(width / 1920, (height - extra) / 1080) };
+    contentScale: scale };
 }
 
 // Detail portrait/L2D share fullscreen; photography also owns an independent
@@ -50,3 +52,7 @@ export function subtractRegions(background, exclusions) {
 }
 
 export const expandRect = (r, gap = 4) => ({ left: r.left - gap, top: r.top - gap, right: r.right + gap, bottom: r.bottom + gap });
+
+// Cover the shared stage/overlay antialiasing footprint with the opaque loading
+// backdrop. One device pixel hides the stage colour at every fractional origin.
+export const stageCoverBleed = (scale, dpi = 1) => 1 / (scale * dpi);

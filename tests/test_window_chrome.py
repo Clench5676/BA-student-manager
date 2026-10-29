@@ -14,7 +14,7 @@ from ba_modding_toolkit.webui.jobs import JobRunner
 from ba_modding_toolkit.webui.window_chrome import Rect, WindowChrome, union, vertical_offsets
 from ba_modding_toolkit.webui.window_close import CloseCoordinator
 from ba_modding_toolkit.webui.window_macos import CocoaHost
-from ba_modding_toolkit.webui.window_windows import WindowsHost, frame_hit, WM_NCCALCSIZE, WM_NCHITTEST, WM_NCMOUSELEAVE
+from ba_modding_toolkit.webui.window_windows import WindowsHost, aspect_rect, WM_SIZING, WM_DPICHANGED
 
 
 class Host:
@@ -161,81 +161,42 @@ def test_cocoa_moves_only_y_and_leaves_fullscreen_reveal_to_appkit(flipped):
         host.measure({'centre': 40})
 
 
-@pytest.mark.parametrize('code', [WM_NCHITTEST, WM_NCMOUSELEAVE])
-def test_windows_passes_caption_hit_testing_to_dwm_first(monkeypatch, code):
-    calls = []
-    host = WindowsHost(NS(native=NS()), NS())
-    host.handle = 123
-    def dwm(*args):
-        calls.append('dwm')
-        args[-1]._obj.value = 9  # HTMAXBUTTON belongs to DWM; never paint/replace it.
-        return True
-    host.dwm = NS(DwmDefWindowProc=dwm)
-    assert host.message(code, 0, 0, lambda: calls.append('default')) == 9
-    assert calls == ['dwm']
+class Hook:
+    def __init__(self):
+        self.handlers = []
+
+    def __iadd__(self, fn):
+        self.handlers.append(fn)
+        return self
+
+    def __isub__(self, fn):
+        self.handlers.remove(fn)
+        return self
 
 
-def test_windows_extends_only_top_and_preserves_side_bottom_work_area(monkeypatch):
-    from ctypes import wintypes
-    host = WindowsHost(NS(native=NS()), NS())
-    value = wintypes.RECT(0, 0, 1600, 900)
-    def default():
-        value.left += 8; value.right -= 8; value.top += 31; value.bottom -= 8
-    assert host.message(WM_NCCALCSIZE, 1, ctypes.addressof(value), default) == 0
-    assert (value.left, value.top, value.right, value.bottom) == (8, 0, 1592, 892)
+def test_windows_standard_caption_does_not_access_or_clip_webview_or_extend_frame(windows_host):
+    # No WebView2, DWM or style setter is supplied. Installation precedes navigation.
+    host = windows_host.host
+    form = host.form
+    chrome = WindowChrome(host.window, EventBus(), platform='win32', host=host)
+    host.owner = chrome
+    chrome.install()
+    assert chrome.active and chrome.valid
+    assert chrome.snapshot()['mode'] == 'standard' and chrome.bounds is None
+    assert len(form.Resize.handlers) == len(form.DpiChanged.handlers) == 1
+    form.WindowState = 'Maximized'
+    form.Resize.handlers[0]()
+    assert chrome.state['maximized']
+    chrome.dispose()
+    assert not form.Resize.handlers and not form.DpiChanged.handlers
 
 
-@pytest.mark.parametrize('dpi', [96, 120, 144, 192, 288])
-def test_windows_measures_caption_in_css_pixels_and_clips_the_webview_child(monkeypatch, dpi):
-    class Region:
-        def __init__(self, box): self.box, self.exclusions = box, []
-        def Exclude(self, box): self.exclusions.append(box)
-        def Dispose(self): pass
-    monkeypatch.setitem(sys.modules, 'System.Drawing', NS(Rectangle=lambda *args: args, Region=Region))
-    ratio = dpi / 96
-    form = NS(Visible=True, ClientSize=NS(Width=1600 * ratio))
-    host = WindowsHost(NS(native=form), NS())
-    host.handle, host.dpi = 123, lambda: dpi
-    host.state = lambda: dict(minimized=False, maximized=False)
-    host.control = NS(Region=None, Width=1600 * ratio, Height=900 * ratio, Left=0, Top=0)
-    def measured(handle, key, output, size):
-        output._obj.left, output._obj.top = int(1452 * ratio), 0
-        output._obj.right, output._obj.bottom = int(1600 * ratio), int(32 * ratio)
-        return 0
-    def window_rect(handle, output):
-        output._obj.left, output._obj.top = -1920, -200
-    def client(handle, point):
-        point._obj.x, point._obj.y = 0, 0
-    host.user = NS(GetWindowRect=window_rect, ScreenToClient=client, GetSystemMetricsForDpi=lambda metric, dpi: 4)
-    host.dwm = NS(DwmGetWindowAttribute=measured, DwmExtendFrameIntoClientArea=lambda *args: 0)
-    one = host.measure({'centre': 29.56})
-    two = host.measure({'centre': 60})
-    assert one == two == Rect(1452, 0, 1600, 32)
-    assert host.control.Region.exclusions[0] == (int(1452 * ratio), 0, int(148 * ratio + 1), int(32 * ratio + 1))
-    assert host.control.Region.exclusions[1] == (0, 0, 1600 * ratio, 8)
-    form.Visible = False
-    assert host.measure({}) is None
-
-
-def test_windows_missing_optional_sdk_api_does_not_mutate_host():
-    host = WindowsHost(NS(native=NS(webview=NS(CoreWebView2=NS(Settings=NS())))), NS())
-    # Import is a pywebview dependency on Windows; fake it without loading .NET.
-    previous = sys.modules.get('System.Windows.Forms')
-    sys.modules['System.Windows.Forms'] = NS(NativeWindow=object)
-    try:
-        with pytest.raises(RuntimeError, match='lacks IsNonClientRegionSupportEnabled'):
-            host.install()
-        assert host.old_style is None and host.settings is None and host.hook is None
-    finally:
-        if previous is None: sys.modules.pop('System.Windows.Forms')
-        else: sys.modules['System.Windows.Forms'] = previous
-
-
-@pytest.mark.parametrize('point, expected', [((0, 0), 13), ((1599, 0), 14), ((0, 899), 16),
-    ((1599, 899), 17), ((800, 0), 12), ((800, 899), 15), ((0, 400), 10), ((1599, 400), 11), ((800, 400), None)])
-def test_windows_resize_edges_and_corners(point, expected):
-    assert frame_hit(*point, 1600, 900, 8) == expected
-    assert frame_hit(*point, 1600, 900, 8, maximized=True) is None
+def test_windows_standard_caption_survives_adapter_failure_without_html_fallback():
+    host = Host()
+    host.bounds = RuntimeError('native adapter failed')
+    chrome = WindowChrome(NS(), EventBus(), platform='win32', host=host)
+    chrome.install()
+    assert not chrome.active and chrome.snapshot()['mode'] == 'standard'
 
 
 @pytest.fixture
@@ -366,13 +327,17 @@ def test_windows_subclass_retains_callback_forwards_and_cleans_up():
     errors = []
     def message(code, wparam, lparam, default):
         if code == 7: raise RuntimeError('message failed')
+        if code == 8:
+            default()
+            raise RuntimeError('post-default policy failed')
         return default()
     hook = WindowSubclass(123, message, errors.append, api=api, callback_type=lambda *signature: lambda fn: fn)
     assert hook.callback(123, 1, 2, 3, hook.identifier, 0) == 42
     assert hook.callback(123, 7, 2, 3, hook.identifier, 0) == 42
+    assert hook.callback(123, 8, 2, 3, hook.identifier, 0) == 42
     hook.dispose()
-    assert [item[0] for item in calls] == ['install','default','default','remove']
-    assert len(errors) == 1
+    assert [item[0] for item in calls] == ['install','default','default','default','remove']
+    assert len(errors) == 2
     assert calls[0][1][1] is calls[-1][1][1] is hook.callback
 
 
@@ -535,6 +500,8 @@ def test_cocoa_installs_and_removes_a_window_scoped_mouse_monitor(cocoa_drag):
     for button in buttons:
         button.hidden = True
         button.setHidden_ = lambda hidden, button=button: setattr(button, 'hidden', hidden)
+    aspect = []
+    f.host.window.setContentAspectRatio_ = aspect.append
     f.host.window.standardWindowButton_ = lambda kind: buttons[kind]
     monitors, removed, observers = [], [], []
     centre = NS(addObserverForName_object_queue_usingBlock_=lambda *args: observers.append(args) or args,
@@ -550,6 +517,7 @@ def test_cocoa_installs_and_removes_a_window_scoped_mouse_monitor(cocoa_drag):
         setattr(api, 'NSWindow' + name + 'Notification', name)
     host = CocoaHost(NS(native=f.host.window), f.host.owner, api=api, dispatch=lambda fn: fn())
     host.install()
+    assert aspect == [(16, 9)]
     assert monitors[0][0] == api.NSEventMaskLeftMouseDown
     assert monitors[0][1](f.event()) is None
     assert f.calls == ['drag'] and not any(button.hidden for button in buttons)
@@ -557,3 +525,187 @@ def test_cocoa_installs_and_removes_a_window_scoped_mouse_monitor(cocoa_drag):
     assert all(button.hidden for button in buttons)
     assert removed == observers + [monitors[0][1]]
     assert host.monitor is None and not hasattr(host, 'overlay')
+
+
+class NativeFunction:
+    def __init__(self, fn):
+        self.fn = fn
+
+    def __call__(self, *args):
+        return self.fn(*args)
+
+
+@pytest.fixture
+def windows_host(monkeypatch):
+    # Screen coordinates deliberately include a negative monitor origin.
+    current = [-1800, -100, -184, 839]
+    calls, hooks = [], []
+    state = {'dpi': 96}
+    form = NS(Resize=Hook(), DpiChanged=Hook(), HandleCreated=Hook(), WindowState='Normal',
+              is_fullscreen=False, Handle=NS(ToInt64=lambda: 123), DeviceDpi=96,
+              MinimumSize=(960, 540), IsDisposed=False)
+    monkeypatch.setitem(sys.modules, 'System.Drawing', NS(Size=lambda w, h: (w, h)))
+    def frame(output, style, menu, extended, dpi):
+        calls.append(('frame', style, menu, extended, dpi))
+        fw, fh = round(16 * dpi / 96), round(39 * dpi / 96)
+        output._obj.left, output._obj.top = -fw // 2, -(fh - fw // 2)
+        output._obj.right, output._obj.bottom = fw // 2, fw // 2
+        return True
+    def get_rect(handle, output):
+        output._obj.left, output._obj.top, output._obj.right, output._obj.bottom = current
+        return True
+    def set_rect(handle, other, x, y, w, h, flags):
+        calls.append(('size', x, y, w, h, flags))
+        current[:] = [x, y, x + w, y + h]
+        return True
+    api = NS(GetWindowLongPtrW=NativeFunction(lambda handle, index: 0xCF0000 if index == -16 else 0x100),
+             GetMenu=NativeFunction(lambda handle: 0), GetWindowRect=NativeFunction(get_rect),
+             AdjustWindowRectExForDpi=NativeFunction(frame), SetWindowPos=NativeFunction(set_rect),
+             GetDpiForWindow=NativeFunction(lambda handle: state['dpi']))
+    def subclass(handle, message, failed):
+        hook = NS(handle=handle, message=message, disposed=False)
+        hook.dispose = lambda: setattr(hook, 'disposed', True)
+        hooks.append(hook)
+        return hook
+    window = NS(native=form, min_size=(960, 540), initial_width=1600, initial_height=900)
+    host = WindowsHost(window, NS(refresh=lambda: calls.append('refresh')), api=api, subclass_factory=subclass)
+    return NS(host=host, calls=calls, hooks=hooks, current=current, state=state)
+
+
+@pytest.mark.parametrize('dpi', [96, 120, 144, 192, 288])
+@pytest.mark.parametrize('edge', range(1, 9))
+@pytest.mark.parametrize('size', [(1317, 827), (300, 200), (2573, 1001)])
+def test_windows_aspect_correction_for_every_edge_minimum_and_dpi(dpi, edge, size):
+    import math
+    fw, fh = round(16 * dpi / 96), round(39 * dpi / 96)
+    original = Rect(-1920, -200, -1920 + size[0] + fw, -200 + size[1] + fh)
+    corrected = aspect_rect(original, edge, (fw, fh), dpi=dpi)
+    width, height = corrected.right - corrected.left - fw, corrected.bottom - corrected.top - fh
+    assert width >= math.ceil(960 * dpi / 96) and height >= math.ceil(540 * dpi / 96)
+    if edge in (1, 2):
+        assert abs(height - width * 9 / 16) <= .5
+    else:
+        assert abs(width - height * 16 / 9) <= .5
+    assert (corrected.right if edge in (1, 4, 7) else corrected.left) == (original.right if edge in (1, 4, 7) else original.left)
+    assert (corrected.bottom if edge in (3, 4, 5) else corrected.top) == (original.bottom if edge in (3, 4, 5) else original.top)
+    assert all(isinstance(value, int) for value in (corrected.left, corrected.top, corrected.right, corrected.bottom))
+
+
+@pytest.mark.parametrize('dpi', [96, 120, 144, 192])
+@pytest.mark.parametrize('edge', range(1, 9))
+def test_windows_sizing_message_corrects_the_physical_client_rect(windows_host, dpi, edge):
+    from ctypes import wintypes
+    f = windows_host
+    f.state['dpi'] = dpi
+    f.host.install()
+    value = wintypes.RECT(-1300, -200, 400, 800)
+    expected = aspect_rect(Rect(-1300, -200, 400, 800), edge, f.host.frame_size(), dpi=dpi)
+    assert f.host.message(WM_SIZING, edge, ctypes.addressof(value), lambda: pytest.fail('WM_SIZING should be handled')) == 1
+    assert (value.left, value.top, value.right, value.bottom) == (expected.left, expected.top, expected.right, expected.bottom)
+
+
+@pytest.mark.parametrize('dpi', [96, 120, 144, 192])
+def test_windows_startup_uses_client_dimensions_and_dpi_adjusted_frame(windows_host, dpi):
+    f = windows_host
+    f.state['dpi'] = dpi
+    f.host.install()
+    fw, fh = f.host.frame_size()
+    assert f.current[2] - f.current[0] - fw == round(1600 * dpi / 96)
+    assert f.current[3] - f.current[1] - fh == round(900 * dpi / 96)
+    assert f.host.form.MinimumSize == (round(960 * dpi / 96) + fw, round(540 * dpi / 96) + fh)
+    assert f.current[:2] == [-1800, -100]
+    assert ('frame', 0xCF0000, False, 0x100, dpi) in f.calls
+    f.host.dispose()
+    assert f.hooks[0].disposed and f.host.form.MinimumSize == (960, 540)
+
+
+@pytest.mark.parametrize('mode', ['Maximized', 'Minimized', 'Fullscreen'])
+def test_windows_maximize_and_fullscreen_retain_os_geometry_and_default_messages(windows_host, mode):
+    f = windows_host
+    f.host.form.WindowState = mode if mode != 'Fullscreen' else 'Normal'
+    f.host.form.is_fullscreen = mode == 'Fullscreen'
+    f.host.install()
+    assert not any(call[0] == 'size' for call in f.calls)
+    assert f.host.message(WM_SIZING, 2, 0, lambda: 42) == 42
+    assert f.host.message(0x83, 1, 0, lambda: 43) == 43
+    assert f.host.message(0x84, 0, 0, lambda: 9) == 9
+    assert f.host.message(0x2A2, 0, 0, lambda: 0) == 0
+
+
+def test_windows_dpi_changes_run_default_first_and_rehook_recreated_handles(windows_host):
+    f = windows_host
+    f.host.install()
+    f.calls.clear()
+    def default():
+        f.calls.append('default')
+        f.state['dpi'] = 144
+        return 42
+    assert f.host.message(WM_DPICHANGED, 0, 0, default) == 42
+    assert f.calls[0] == 'default'
+    fw, fh = f.host.frame_size()
+    assert f.host.form.MinimumSize == (1440 + fw, 810 + fh)
+    f.host.form.Handle = NS(ToInt64=lambda: 456)
+    f.host.form.HandleCreated.handlers[0]()
+    assert f.hooks[0].disposed and f.hooks[1].handle == 456
+    f.host.dispose()
+    assert f.hooks[1].disposed and not f.host.form.HandleCreated.handlers
+
+
+def test_cocoa_content_aspect_policy_survives_m1_alignment_failure():
+    calls = []
+    window = NS(setContentAspectRatio_=calls.append, standardWindowButton_=lambda kind: None)
+    api = NS(NSWindowCloseButton=0, NSWindowMiniaturizeButton=1, NSWindowZoomButton=2)
+    host = CocoaHost(NS(native=window), NS(), api=api, dispatch=lambda fn: fn())
+    with pytest.raises(RuntimeError, match='button missing'):
+        host.install()
+    assert calls == [(16, 9)]
+
+
+def test_windows_failed_aspect_install_keeps_standard_caption_and_cleans_subclass(windows_host):
+    f = windows_host
+    f.host.user.AdjustWindowRectExForDpi = NativeFunction(lambda *args: False)
+    chrome = WindowChrome(f.host.window, EventBus(), platform='win32', host=f.host)
+    f.host.owner = chrome
+    chrome.install()
+    assert not chrome.active and chrome.snapshot()['mode'] == 'standard'
+    assert f.hooks[0].disposed
+    assert not f.host.form.Resize.handlers and not f.host.form.HandleCreated.handlers
+    assert f.host.form.MinimumSize == (960, 540)
+    assert 'frame' in chrome.reason
+
+
+def test_windows_installs_aspect_policy_before_show_without_waiting_for_webview(monkeypatch, tmp_path):
+    from ba_modding_toolkit.webui import main, native, window_chrome
+    from ba_modding_toolkit.webui.timing import Timings
+    from ba_modding_toolkit.webui.tray import Tray
+    calls = []
+    handlers = {}
+    class Event(Hook):
+        def __init__(self, name):
+            super().__init__()
+            handlers[name] = self.handlers
+    class Chrome:
+        active = False
+        def __init__(self, *args, **kwargs): pass
+        def install(self): calls.append('install')
+        def close(self): pass
+        def dispose(self): calls.append('dispose')
+    def create(title, url, **kwargs):
+        assert kwargs['frameless'] is False
+        return NS(events=NS(**{name: Event(name) for name in ('initialized', 'loaded', 'closing', 'closed',
+                                                              'before_show', 'shown', 'maximized', 'minimized', 'restored')}))
+    def start(**kwargs):
+        calls.append('before-show')
+        handlers['before_show'][0]()
+        assert calls == ['before-show', 'install']
+        assert not services.close_coordinator.page_loaded
+        calls.append('shown')
+        handlers['shown'][0]()
+    monkeypatch.setattr(main.sys, 'platform', 'win32')
+    monkeypatch.setattr(native, 'webview2_version', lambda: '120.0.0.0')
+    monkeypatch.setattr(Tray, 'supported', staticmethod(lambda: False))
+    monkeypatch.setattr(window_chrome, 'WindowChrome', Chrome)
+    monkeypatch.setitem(sys.modules, 'webview', NS(settings={}, create_window=create, start=start))
+    services = NS(window=None, data_dir=tmp_path, timings=Timings(), events=EventBus())
+    main._run_window(services, NS(url='http://127.0.0.1:1/'), False)
+    assert calls == ['before-show', 'install', 'shown', 'dispose']

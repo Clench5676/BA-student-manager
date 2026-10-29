@@ -1379,8 +1379,9 @@ Owner findings on the Import screen:
 
 ## BL-059: Windows title bar: accent strip and native caption buttons
 
-- Status: Owner decision 2026-10-29 (final): Windows shows the system's own standard title bar again, above the
-  App; the extended-caption W1 of BL-037 is dropped on Windows (game-styled buttons judged not worth it). Not started.
+- Status: Implemented for local review; owner acceptance on Windows pending.
+- Note: Windows uses the standard system title bar above the App; extended-caption W1 is removed. The prefab
+  toolbar has no native-button reservation and no HTML window controls.
 - Requested: 2026-10-29.
 
 On Windows the native caption (BL-037's W1) shows a bar in the system accent colour along the top of the window, up
@@ -1396,8 +1397,11 @@ maximize. The game has no restore (two windows) icon.
 
 ## BL-060: Windows: blue lines at the stage edges during startup
 
-- Status: Reported (2026-10-29, alpha.12 on Windows); not started. Owner requirement: lock the window's resize to
-  the stage's aspect ratio, so no black bars appear above, below or beside the stage.
+- Status: Implemented for local review; owner acceptance on Windows pending.
+- Note: Windows WM_SIZING constrains the DPI-adjusted client area to 16:9 at all eight edges/corners, with a
+  960 x 540 CSS-pixel minimum; startup uses client dimensions. macOS sets NSWindow.contentAspectRatio. Maximize
+  and fullscreen retain OS geometry. The stage fit and opaque loading-cover overlap remove header-induced bars
+  and fractional blue seams; real platform painting remains owner acceptance.
 - Requested: 2026-10-29.
 
 While Now Loading shows, a thin blue vertical line runs down each side, about 28 px in from the window edges of a
@@ -1406,7 +1410,10 @@ own background shows past the loading cover at a fractional stage offset (Window
 
 ## BL-061: Windows: top bar background flickers while the window is resized
 
-- Status: Reported (2026-10-29, alpha.12 on Windows); not started.
+- Status: Implemented for local review; owner acceptance on Windows pending.
+- Note: Background painting coalesces requests per animation frame and serializes raster generation. The last
+  decoded raster stays visible until its replacement has encoded and decoded; stale results and failures leave
+  it intact.
 - Requested: 2026-10-29.
 
 Dragging the window wider or narrower makes the whole top bar background (`Common_Top_Menu_Bg`, drawn as one

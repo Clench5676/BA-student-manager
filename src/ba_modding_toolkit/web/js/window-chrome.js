@@ -10,11 +10,11 @@ import { headerGeometry, rowLayout, isImmersive, dragRegions, expandRect } from 
 let snapshot = null, wrapper = null, placeholder = null, compact = false, scheduled = false, lastLayout = "";
 let layoutRevision = 0, lastImmersive = null;
 const bar = () => document.querySelector('.topbar');
-export const nativeChrome = () => snapshot?.active ? snapshot : null;
+export const nativeChrome = () => snapshot?.active && snapshot.mode !== 'standard' ? snapshot : null;
 
 function fallbackControls() {
   const existing = document.getElementById('native-controls');
-  if (snapshot?.active || !globalThis.pywebview) { existing?.remove(); return; }
+  if (!snapshot || snapshot.active || snapshot.mode === 'standard' || !globalThis.pywebview) { existing?.remove(); return; }
   if (existing) {
     for (const button of existing.children) button.setAttribute('aria-label', T(`window.${button.dataset.action}`));
     return;
@@ -68,7 +68,7 @@ async function layout() {
   const visibleHits = (root) => [...root.querySelectorAll('button, [role="switch"], .mod-switch')]
     .filter((el) => !el.hidden && getComputedStyle(el).visibility !== 'hidden' && el.getClientRects().length)
     .map((el) => expandRect(el.getBoundingClientRect()));
-  if (!snapshot?.active) {
+  if (!nativeChrome()) {
     lastImmersive = null;
     if (wrapper) {
       placeholder.replaceWith(header); wrapper.remove(); wrapper = placeholder = null;
@@ -82,7 +82,7 @@ async function layout() {
     fitRow(header, scale);
     paintTopBar(header, scale).catch((error) => console.warn("top bar background", error));
     await alignTopBar();
-    if (revision !== layoutRevision || snapshot?.active) return;
+    if (revision !== layoutRevision || nativeChrome()) return;
     return;
   }
   if (!wrapper) {
@@ -90,7 +90,7 @@ async function layout() {
     wrapper = document.createElement('div'); wrapper.className = 'window-header';
     document.body.append(wrapper); wrapper.append(header); header.classList.add('native-toolbar'); document.body.classList.add('native-chrome');
   }
-  const g = headerGeometry(innerWidth, innerHeight, snapshot.platform === 'win32' ? snapshot.bounds?.bottom || 0 : 0, immersive);
+  const g = headerGeometry(innerWidth, innerHeight, 0, immersive);
   globalThis.bamtHeaderGeometry = g;
   wrapper.style.height = `${g.rowHeight}px`;
   Object.assign(header.style, { width: `${innerWidth / g.scale}px`, height: `${g.rowHeight / g.scale}px`, transform: `scale(${g.scale})` });
@@ -107,10 +107,10 @@ async function layout() {
     wrapper.querySelectorAll('.window-drag-region').forEach((el) => el.remove());
     header.inert = immersive || blocked || !snapshot.valid;
     await publishLayout(g, []);
-    if (revision !== layoutRevision || !snapshot?.active || !wrapper || blocked || !snapshot.valid) return;
+    if (revision !== layoutRevision || !nativeChrome() || !wrapper || blocked || !snapshot.valid) return;
   }
   await alignTopBar();
-  if (revision !== layoutRevision || !snapshot?.active || !wrapper) return;
+  if (revision !== layoutRevision || !nativeChrome() || !wrapper) return;
   // Native regions never cover popups or hanging Back art. Immersive scenes
   // keep only the real window controls, with no toolbar or drag regions.
   header.inert = !snapshot.valid || immersive || blocked;
@@ -118,22 +118,13 @@ async function layout() {
     platform: snapshot.platform, immersive, blocked: blocked || !snapshot.valid,
     exclusions: visibleHits(immersive ? stage : header) });
   wrapper.querySelectorAll('.window-drag-region').forEach((el) => el.remove());
-  if (snapshot.platform === 'win32') drawDragRegions(wrapper, drag);
-  if (revision !== layoutRevision || !snapshot?.active || !wrapper) return;
+  if (revision !== layoutRevision || !nativeChrome() || !wrapper) return;
   await publishLayout(g, drag);
 }
 
 async function publishLayout(g, drag) {
   const payload = JSON.stringify({ centre: g.centre, height: g.rowHeight, drag });
   if (payload !== lastLayout) { lastLayout = payload; await rpc('window.layout', JSON.parse(payload)); }
-}
-
-function drawDragRegions(host, drag) {
-  for (const rect of drag) {
-    const region = document.createElement('div'); region.className = 'window-drag-region';
-    Object.assign(region.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.right - rect.left}px`, height: `${rect.bottom - rect.top}px` });
-    host.append(region);
-  }
 }
 
 export function setupWindowChrome() {

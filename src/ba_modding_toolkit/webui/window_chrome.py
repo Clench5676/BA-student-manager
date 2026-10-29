@@ -80,6 +80,7 @@ class WindowChrome:
 
     def snapshot(self):
         return {"active": self.active, "platform": self.platform, "reason": self.reason,
+                "mode": "standard" if self.platform == "win32" else "integrated",
                 "bounds": asdict(self.bounds) if self.bounds else None, "valid": self.valid,
                 "state": dict(self.state), "sequence": self.sequence}
 
@@ -93,7 +94,7 @@ class WindowChrome:
         try:
             self.state = self.host.state()
             bounds = self.host.measure(self.layout)
-            self.valid = bounds is not None and bounds.valid
+            self.valid = self.platform == "win32" or (bounds is not None and bounds.valid)
             if self.valid:
                 self.bounds = bounds
             self.publish()

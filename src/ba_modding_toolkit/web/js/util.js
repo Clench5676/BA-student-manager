@@ -1,5 +1,6 @@
 // Shared constants and small helpers for the screens.
 import * as NGUI from "./ngui.js";
+import { stageCoverBleed } from "./window-layout.js";
 import { reflowCorners } from "./corner-layout.js";
 
 export const S = 1920 / 2960;                       // stage px per NGUI unit (the game fits 2960 units to the width)
@@ -81,7 +82,9 @@ export const DOT = (pos, size = 34) => NGUI.node("Dot", pos, [NGUI.sprite("Commo
 
 export function fitStage() {
   const stage = document.getElementById("stage"), header = globalThis.bamtHeaderGeometry;
-  stage.style.setProperty("--scale", header?.contentScale ?? Math.min(innerWidth / 1920, innerHeight / 1080));
+  const scale = header?.contentScale ?? Math.min(innerWidth / 1920, innerHeight / 1080);
+  stage.style.setProperty("--scale", scale);
+  stage.style.setProperty("--cover-bleed", `${stageCoverBleed(scale, globalThis.devicePixelRatio || 1)}px`);
   if (header) stage.style.top = `calc(50% + ${header.extra / 2}px)`;
   else stage.style.removeProperty("top");
   const bar = document.querySelector?.('.topbar');

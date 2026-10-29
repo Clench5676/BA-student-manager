@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
-import { headerGeometry, rowLayout, subtractRegions, expandRect } from '../../src/ba_modding_toolkit/web/js/window-layout.js';
+import { headerGeometry, rowLayout, subtractRegions, expandRect, stageCoverBleed } from '../../src/ba_modding_toolkit/web/js/window-layout.js';
 import { topActionLayout, nativeRightClearance } from '../../src/ba_modding_toolkit/web/js/top-action-layout.js';
 import { barCentre } from '../../src/ba_modding_toolkit/web/js/top-bar-layout.js';
 import { cornerPrefabs } from './corner_prefabs.mjs';
@@ -149,4 +149,28 @@ test('Hall uses the Back slot and restores the other rows without losing native 
     assert.deepEqual(after,before);
     if(nativeLeft)near(hall.modsLeft,nativeLeft+8);
   }
+});
+
+for(const [width,height] of [[960,540],[1600,900],[2560,1440]])test(`16:9 content at ${width}x${height} has no header-induced letterbox`,()=>{
+  for(const immersive of [false,true]){
+    const g=headerGeometry(width,height,0,immersive);
+    assert.equal(g.extra,0);near(1920*g.contentScale,width);near(1080*g.contentScale,height);
+    assert.ok(g.rowHeight>=44);near(g.centre,barCentre(undefined,g.rowHeight));
+  }
+});
+
+for(const dpi of [1,1.25,1.5,2,3])test(`opaque loading cover includes the stage's antialiasing footprint at DPI ${dpi}`,()=>{
+  for(const [width,height] of [[960,540],[1600,900],[2560,1440],[1568,900],[2560,1080],[960,1200]]){
+    const g=headerGeometry(width,height),scale=g.contentScale,bleed=stageCoverBleed(scale,dpi);
+    near(bleed*scale*dpi,1);
+    for(const fraction of [0,.125,.25,.5,.875]){
+      const left=(width-1920*scale)/2+fraction,top=(height-1080*scale)/2+fraction;
+      for(const [start,end] of [[left,left+1920*scale],[top,top+1080*scale]]){
+        assert.ok((start-bleed*scale)*dpi<=Math.floor(start*dpi)+1e-7);
+        assert.ok((end+bleed*scale)*dpi>=Math.ceil(end*dpi)-1e-7);
+      }
+    }
+  }
+  assert.match(cssSource,/\.loading\.full \.loading-back \{ inset: calc\(0px - var\(--cover-bleed, 2px\)\); \}/);
+  assert.match(cssSource,/html, body \{[^}]*background: #000/);
 });

@@ -1567,7 +1567,8 @@ def test_program_command_in_a_compiled_build(monkeypatch, tmp_path):
     assert system.program_command() == [str(exe.resolve())]
 
 
-def test_the_window_leaves_the_pointer_and_text_selection_to_the_page(monkeypatch, tmp_path):
+@pytest.mark.parametrize("platform", ["win32", "darwin", "linux"])
+def test_the_window_leaves_the_pointer_and_text_selection_to_the_page(monkeypatch, tmp_path, platform):
     """pywebview's text_select=False (its default) appends "body { user-select: none; cursor: default }" to the page,
     after app.css: the game's pointer (web/js/cursor.js) then shows only on buttons, the system arrow everywhere else.
     The window keeps text selection on and the page turns it off itself."""
@@ -1581,6 +1582,9 @@ def test_the_window_leaves_the_pointer_and_text_selection_to_the_page(monkeypatc
         def __iadd__(self, handler):
             return self
 
+    monkeypatch.setattr(main.sys, "platform", platform)
+    from ba_modding_toolkit.webui import native
+    monkeypatch.setattr(native, "webview2_version", lambda: "120.0.0.0")
     created, started = {}, {}
 
     def create_window(title, url, **options):
@@ -1593,6 +1597,7 @@ def test_the_window_leaves_the_pointer_and_text_selection_to_the_page(monkeypatc
 
     monkeypatch.setattr(Tray, "supported", staticmethod(lambda platform=sys.platform: False))  # tests/test_tray.py
     main._run_window(SimpleNamespace(window=None, data_dir=tmp_path, timings=Timings(), events=EventBus()), SimpleNamespace(url="http://127.0.0.1:1/"), False)
+    assert created["frameless"] is (platform != "win32")
     assert created["text_select"] is True
     assert started["private_mode"] is True
 
