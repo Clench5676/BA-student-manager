@@ -1294,7 +1294,9 @@ remain for owner UAT; Windows is not natively reviewed.
   changes the whole head slightly, not only the features. Cause (lead): each expression patch covers the whole face
   and comes from its own redrawn picture, so bangs, skin shading and the face outline inside it differ per
   expression. Next: take only the features from each edit and the rest of the face from one base.
-- Owner (2026-10-29): considering a standalone repository for the spine artist while it is not App-related.
+- Spine artist moved to a standalone repository, BA Spine Artist (owner decision 2026-10-29: not App-related yet;
+  to be published by the owner later). Its build and mod reproduce the accepted R1 byte for byte; the branch
+  `codex/spine-artist` is closed. Writing game bundles still uses this App's packer.
 - R1c stopped after one retry (2026-10-27; K8): movement, overlap RMSE and crop-boundary gates still fail;
   no cut or mod was built. See experiment section 13 for the four-crop run and merge/key artifacts.
 - Owner review of the K4 test mods (2026-10-27): D1 and D3 are acceptable as generated images, but the joins are
