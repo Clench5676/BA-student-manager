@@ -42,6 +42,7 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-013, BL-019, BL-030 | Planned, not implemented |
 | BL-054 | Deferred by the owner for research; design proposal on file |
 | BL-056 | Funnel: AI-assisted portrait refinement, being refined |
+| BL-057 | Implemented for local review; owner acceptance pending (English "alt") |
 | BL-055 | Implemented for local review; owner UAT/visual acceptance pending. Loaded drop work cannot hold shutdown; early loop-exit trigger remains logged and unresolved. |
 | BL-014 | Candidate, not scheduled |
 | BL-016 through BL-018 | Deferred |

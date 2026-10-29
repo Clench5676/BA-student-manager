@@ -1352,3 +1352,13 @@ Owner decisions, continued (2026-10-27):
   API key. Usage is not a concern for the experiment.
 - Upscaling really means restoring detail: most portraits are already large but very blurry, as if enlarged.
 - A previous Codex trial on Shiroko (Cycling) looked good; continue the experiment from there.
+
+## BL-057: English calls alternate student versions "alts"
+
+- Status: Implemented for local review (2026-10-29); owner acceptance pending in the next test build.
+- Requested: 2026-10-29.
+
+The English interface called alternate versions of a student "variants" (the roster's Group Variants, the picker's
+Select Variant, errors and the character name help). The owner checked the English-speaking community, which says
+"alt". All English texts now say alt (Group Alts, Select Alt, Alt not found, In use by another alt); locale keys and
+code keep "variant".
