@@ -1379,8 +1379,8 @@ Owner findings on the Import screen:
 
 ## BL-059: Windows title bar: accent strip and native caption buttons
 
-- Status: Owner decision 2026-10-29: game-styled buttons in the top bar (option B, replacing BL-037's native
-  Windows caption buttons); not started.
+- Status: Owner decision 2026-10-29 (final): Windows shows the system's own standard title bar again, above the
+  App; the extended-caption W1 of BL-037 is dropped on Windows (game-styled buttons judged not worth it). Not started.
 - Requested: 2026-10-29.
 
 On Windows the native caption (BL-037's W1) shows a bar in the system accent colour along the top of the window, up
