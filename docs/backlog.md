@@ -1285,6 +1285,16 @@ remain for owner UAT; Windows is not natively reviewed.
   expression targets, made from a different base head, in the head median vote. Next run: generate the expression
   crops from the new base head (the K7 expression inputs) before cutting.
   Owner (2026-10-28): not visible at normal size; no R1c rework. The rule applies to later runs.
+- Spine artist route (2026-10-28 to 10-29; branch `codex/spine-artist`, not merged): images in (full body, one edit
+  per expression, eye-close, from any image model), a new skeleton, atlas and page out; the official portrait serves
+  only as reference (face position and size) and its halo is carried over unchanged. Utaha remake R1: Codex drew 10
+  images (new pose and head angle), gave the face box, waifu2x enlarged the images 2x and the body was cut into two
+  seamless regions; texture resolution 1.07 of official, import accepted.
+- Owner review of the Utaha remake R1 (2026-10-29): accepted, very good. Finding: switching expressions visibly
+  changes the whole head slightly, not only the features. Cause (lead): each expression patch covers the whole face
+  and comes from its own redrawn picture, so bangs, skin shading and the face outline inside it differ per
+  expression. Next: take only the features from each edit and the rest of the face from one base.
+- Owner (2026-10-29): considering a standalone repository for the spine artist while it is not App-related.
 - R1c stopped after one retry (2026-10-27; K8): movement, overlap RMSE and crop-boundary gates still fail;
   no cut or mod was built. See experiment section 13 for the four-crop run and merge/key artifacts.
 - Owner review of the K4 test mods (2026-10-27): D1 and D3 are acceptable as generated images, but the joins are
