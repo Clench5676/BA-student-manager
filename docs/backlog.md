@@ -599,7 +599,7 @@ shortcut follows a newly named EXE or delete unrecognized neighboring files.
 
 ## BL-026: Desktop rendering seams, shadow corners and source-toolbar overflow
 
-- Status: Rendering/layout corrections implemented for local 0.6.0-alpha.1 review; packaged Windows visual acceptance pending. Windows UAT by the owner later (2026-10-27).
+- Status: Accepted by the owner on Windows (alpha.12, 2026-10-29): no seams, corners or overflow seen.
 - Requested: 2026-10-26.
 - Evidence: Screenshots 3 through 7 in the [feedback record](feedback-2026-10-26.md#supplied-evidence-index).
 - Details: [Cross-platform checks](feedback-2026-10-26.md#bl-026-detail-cross-platform-ui-defects).
@@ -1379,7 +1379,8 @@ Owner findings on the Import screen:
 
 ## BL-059: Windows title bar: accent strip and native caption buttons
 
-- Status: Reported (2026-10-29, alpha.12 on Windows); design decision pending with the owner.
+- Status: Owner decision 2026-10-29: game-styled buttons in the top bar (option B, replacing BL-037's native
+  Windows caption buttons); not started.
 - Requested: 2026-10-29.
 
 On Windows the native caption (BL-037's W1) shows a bar in the system accent colour along the top of the window, up
@@ -1389,9 +1390,14 @@ give the caption the top bar's colours (Windows 11 DWM caption and text colour a
 the top bar from game sprites (the game has a close button, no minimize or maximize icons; Windows 11's snap layout
 flyout on the maximize button would be lost).
 
+Candidates in the official `Common` atlas (lead, 2026-10-29): `Common_Icon_Close` (60 × 60, white X),
+`Common_Icon_Minus` (50 × 50, white bar, same stroke as the X), `Common_Square_Line` (34 × 34, thin outline) for
+maximize. The game has no restore (two windows) icon.
+
 ## BL-060: Windows: blue lines at the stage edges during startup
 
-- Status: Reported (2026-10-29, alpha.12 on Windows); not started.
+- Status: Reported (2026-10-29, alpha.12 on Windows); not started. Owner requirement: lock the window's resize to
+  the stage's aspect ratio, so no black bars appear above, below or beside the stage.
 - Requested: 2026-10-29.
 
 While Now Loading shows, a thin blue vertical line runs down each side, about 28 px in from the window edges of a
@@ -1416,3 +1422,5 @@ The first launch after building alpha.12 on Windows took a long time and crashed
 could be opened, the App reloaded by itself and then ran normally. Related: BL-027 (first Windows startup failure)
 and BL-055 (macOS first-launch hang). Evidence needed: `webui.log`, `webui.1.log` and `webui.2.log` from the data
 folder beside the executable, copied before the next launches rotate them out.
+On the same first launch no new-features tour (BL-021) appeared, although it should open on the first launch after
+an update in prereleases.

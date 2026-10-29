@@ -20,7 +20,8 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-012 | Accepted by the owner on the lead's evidence (2026-10-27) |
 | BL-015 | Initial photography feature accepted by the owner; later requirements are separate entries |
 | BL-022 through BL-024, BL-028, BL-029 | Accepted by the owner (2026-10-27); Windows not reviewed |
-| BL-025 through BL-027 | Implemented; Windows-only, owner Windows UAT later |
+| BL-026 | Accepted by the owner on Windows (alpha.12) |
+| BL-025, BL-027 | Implemented; Windows-only. BL-025 needs a real in-app update; BL-027 see BL-062 |
 | BL-031 | Accepted by the owner (2026-10-27) |
 | BL-033 through BL-036, BL-038, BL-039 | Accepted by the owner on macOS (alpha.2); Windows not reviewed |
 | BL-032 | Closed: superseded by BL-040 |
