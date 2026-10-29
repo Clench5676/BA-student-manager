@@ -27,7 +27,7 @@ function setup({used=false,used_here=used,used_elsewhere=false,official=false,an
   return {...api,requests,prompts,changed:()=>changed};
 }
 const otherVariantWarnings={
-  'en-US':'In use by another variant','zh-CN':'正在被另一换皮使用','zh-TW':'正在被另一換皮使用',
+  'en-US':'In use by another alt','zh-CN':'正在被另一换皮使用','zh-TW':'正在被另一換皮使用',
   'ja-JP':'別のバリエーションで使用中','ko-KR':'다른 바리에이션에서 사용 중','th-TH':'กำลังใช้กับชุดอื่น',
 };
 for(const [locale,otherWarning] of Object.entries(otherVariantWarnings)){

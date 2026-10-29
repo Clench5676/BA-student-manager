@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFile } from "node:fs/promises";
-const text={"roster.title":"Student List","roster.merge":"Group Variants","seg.all":"All","seg.mods":"Modded","seg.noMods":"No Mod","seg.recruit":"Playable","seg.noRecruit":"NPC","sort.recent":"Recently Viewed","sort.added":"Recently Added","sort.name":"Name","sort.mods":"Mod Count","sort.default":"Default"};
+const text={"roster.title":"Student List","roster.merge":"Group Alts","seg.all":"All","seg.mods":"Modded","seg.noMods":"No Mod","seg.recruit":"Playable","seg.noRecruit":"NPC","sort.recent":"Recently Viewed","sort.added":"Recently Added","sort.name":"Name","sort.mods":"Mod Count","sort.default":"Default"};
 const measure=(value,size)=>value.length*size*.45;
 const fit=(value,size,min,width)=>({text:value,fs:Math.max(min,Math.min(size,width/(value.length*.45))),lines:1});
 let source=await readFile(new URL("../../src/ba_modding_toolkit/web/js/roster-widgets.js",import.meta.url),"utf8");source=source.replace(/^import .*;$/gm,"");
