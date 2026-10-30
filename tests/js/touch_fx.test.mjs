@@ -7,7 +7,7 @@ import {
   FX, arcState, curve, drag, flashState, gradient, overBlend, press, release, sparkState, step, toLinear, toSrgb,
   trailState,
 } from "../../src/ba_modding_toolkit/web/js/touch-fx.js";
-import { cursorValue, opaqueBox, paint, pointerBoxes } from "../../src/ba_modding_toolkit/web/js/cursor.js";
+import { cursorValue, opaqueBox, paint, pointerBoxes, withRetries } from "../../src/ba_modding_toolkit/web/js/cursor.js";
 
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) <= eps, `${a} != ${b}`);
 // a fixed sequence instead of Math.random
@@ -253,4 +253,14 @@ test("every effect's rings are stroked at full alpha, whatever the effect before
     if (front.images.some((a) => a < 1)) faded++; // sprites draw their colour channels at lower alphas
   }
   assert.ok(faded > 0);
+});
+
+test("the pointer retries a failed step, reports each failure and gives up after the last delay", async () => {
+  const waits = [], reports = [], options = { wait: async (ms) => { waits.push(ms); }, report: (e) => reports.push(e.message) };
+  let tries = 0;
+  const value = await withRetries(async () => { if (++tries < 3) throw new Error(`try ${tries}`); return "cursor"; }, [2000, 8000], options);
+  assert.equal(value, "cursor");
+  assert.deepEqual(waits, [2000, 8000]); assert.deepEqual(reports, ["try 1", "try 2"]);
+  await assert.rejects(withRetries(async () => { throw new Error("always"); }, [1], options), /always/);
+  assert.deepEqual(reports.slice(2), ["always", "always"]);
 });

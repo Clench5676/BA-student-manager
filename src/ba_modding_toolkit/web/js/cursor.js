@@ -27,6 +27,7 @@ const POINTER = "PCIcon_MousePoint";
 const TEXTURES = { ring: "FX_TEX_Grad_Ring3", disc: "FX_TEX_Circle_01", tri: "FX_TEX_Triangle_02_1", trail: "FX_TEX_Trail_03" };
 const SIZE = 32; // CSS px
 const STEP = 4; // CSS px between the cuts kept for the window's right and bottom edges
+const RETRIES = [2000, 8000]; // ms before the second and third try
 
 function image(name) {
   return new Promise((resolve) => {
@@ -82,17 +83,37 @@ export function cursorValue(sets, supports = (v) => CSS.supports("cursor", v)) {
   ].find(supports) || null;
 }
 
-async function initPointer() {
+// One step failing leaves the system cursor for the whole run: each step names itself, for the session log.
+async function pointerValue() {
   const img = await image(POINTER);
-  if (!img) return;
+  if (!img) throw new Error(`Pointer: ${POINTER} did not load`);
   const boxes = pointerBoxes(opaqueBox(pixels(img)));
   const sets = await Promise.all(boxes.map(([w, h]) => Promise.all([cut(img, 1, w, h), cut(img, 2, w, h)])));
-  if (sets.flat().some((url) => !url)) return;
+  if (sets.flat().some((url) => !url)) throw new Error("Pointer: a cut could not be encoded");
   const value = cursorValue(sets);
-  if (!value) return;
+  if (!value) throw new Error("Pointer: no cursor syntax is supported");
+  return value;
+}
+
+// run attempt until it succeeds, waiting `delays` ms between tries; every failure is reported, the last one rethrown
+export async function withRetries(attempt, delays, { wait = (ms) => new Promise((r) => setTimeout(r, ms)), report = () => {} } = {}) {
+  for (let i = 0; ; i++) {
+    try { return await attempt(); }
+    catch (error) {
+      report(error);
+      if (i >= delays.length) throw error;
+      await wait(delays[i]);
+    }
+  }
+}
+
+async function initPointer() {
+  const report = (error) => globalThis.BAMTRecovery?.forward?.(error, "pointer");
+  const value = await withRetries(pointerValue, RETRIES, { report });
   const root = document.documentElement.style;
   root.setProperty("--cursor", value);
   root.setProperty("--cursor-press", value);
+  if (!getComputedStyle(document.body).cursor.includes("url(")) report(new Error("Pointer: body did not take the cursor"));
 }
 
 // --- touch effect ---
