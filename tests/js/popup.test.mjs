@@ -1930,6 +1930,41 @@ test("release notes are literal, scroll, retain the offer and never download or 
   await offered;
 });
 
+test("release-note button captions fit the unchanged UIPopup_Sort bodies in all locales and window sizes", async () => {
+  const NGUI = await import("../../src/ba_modding_toolkit/web/js/ngui.js");
+  await Popup.ready();
+  try {
+    for (const lang of ['en-US', 'th-TH', 'ko-KR', 'ja-JP', 'zh-CN', 'zh-TW']) {
+      const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
+      setStrings(lang, Object.fromEntries(strings(ui)));
+      const captions = [ui.update.releasePage, ui.display.close];
+      const tree = Popup.popupFrame(ui.update.notes, 2458, 1355, {
+        buttons: captions.map(label => ({ label })) });
+      const controls = NGUI.find(tree, 'Popup/Btn').children;
+      const labels = controls.map(child => NGUI.find(child, 'Label_Locale').widgets[0]);
+      assert.equal(new Set(labels.map(w => w.fontSize)).size, 1, lang);
+      for (const [i, child] of controls.entries()) {
+        const w = labels[i], body = NGUI.find(child, 'BG (1)');
+        assert.deepEqual(child.pos, [(i - .5) * 484, 0]);
+        assert.deepEqual(child.scale, [460 / 496, 460 / 496]);
+        assert.deepEqual(body.pos, [0, -4]);
+        assert.deepEqual([body.widgets[0].w_, body.widgets[0].h_], [496, 177]);
+        assert.deepEqual(NGUI.find(child, 'Label_Locale').pos, [0, 2]);
+        assert.equal(w.text.replace(/\s/g, ''), captions[i].replace(/\s/g, ''), lang);
+        const lines = w.text.split('\n');
+        assert.ok(lines.length <= 2, `${lang}: ${JSON.stringify(w.text)}`);
+        assert.ok(w.fontSize >= 40 && w.fontSize <= 64, lang);
+        for (const [width, height] of [[960, 540], [1600, 900], [2560, 1440]]) for (const density of [1, 2]) {
+          const scale = Math.min(width / 1920, height / 1080) * (1920 / 2960) * child.scale[0] * density;
+          assert.ok(NGUI.glyphWidth(w.text, w.fontSize) * scale <= 420 * scale + 1e-9, `${lang}: width`);
+          assert.ok(lines.length * NGUI.fontSizeFor(w.text, w.fontSize) * NGUI.LINE_PITCH * scale
+            <= Popup.BUTTON_TEXT_H * scale + 1e-9, `${lang}: height`);
+        }
+      }
+    }
+  } finally { setStrings('en-US', Object.fromEntries(strings(english))); }
+});
+
 test("empty and unavailable notes offer the exact release page in every locale", async () => {
   for (const lang of ['en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH']) {
     const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
@@ -2144,6 +2179,23 @@ test('Settings replay keeps the version list underneath and earlier tours remain
   assert.ok(walk(dialog).some((el) => el.textContent === english.tour.empty));
   action(dialog, 'cancel').click(); await empty;
   handlers.clear();
+});
+
+test('the tour list joins titles with each shipped language\'s comma', async () => {
+  try {
+    for (const lang of ['en-US', 'ko-KR', 'th-TH', 'ja-JP', 'zh-CN', 'zh-TW']) {
+      const ui = JSON.parse(readFileSync(new URL(`../../src/ba_modding_toolkit/locales/${lang}.json`, import.meta.url))).webui;
+      const separator = ['en-US', 'ko-KR', 'th-TH'].includes(lang) ? ', ' : '、';
+      assert.equal(ui.tour.separator, separator);
+      setStrings(lang, Object.fromEntries(strings(ui)));
+      handlers.set('app.tours', () => ({ result: { tours: [{ version: '0.6.0', pages: tourPages }] } }));
+      const pending = Tours.browse();
+      await drawn(dialog, 'cancel');
+      const expected = `0.6.0 - ${tourPages.map(page => page.title).join(separator)}`;
+      assert.ok(walk(dialog).some(el => el.textContent.replace(/\s/g, '') === expected.replace(/\s/g, '')), lang);
+      action(dialog, 'cancel').click(); await pending;
+    }
+  } finally { handlers.clear(); setStrings('en-US', Object.fromEntries(strings(english))); }
 });
 
 test('automatic tours wait for consents, update dialogs and jobs without checking the network', async () => {

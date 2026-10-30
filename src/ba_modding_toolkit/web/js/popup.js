@@ -172,7 +172,7 @@ export const BUTTON_TEXT_H = 140;
 // these labels near the bottom edge (a lone one in the middle). The frame's centre sits 12 units under the stage's
 // (Base -20, BG +8).
 export const FRAME_Y = -12;
-export function popupFrame(title, w, h, { ok = null, cancel = null, close = true, buttons = null, sharedButtonSize = false } = {}) {
+export function popupFrame(title, w, h, { ok = null, cancel = null, close = true, buttons = null } = {}) {
   const t = clone(find(layouts.sortPopup, "Center"));
   const popup = find(t, "Popup");
   popup.children = popup.children.filter((c) => ["Base", "Btn"].includes(c.name));
@@ -211,14 +211,6 @@ export function popupFrame(title, w, h, { ok = null, cancel = null, close = true
     });
     // the captions of the choices share one size
     NGUI.fitLabels(btn.children.map((child) => find(child, "Label_Locale").widgets[0]), buttons.map((action) => action.label), 64, 40, 420, 2, { maxH: BUTTON_TEXT_H });
-  }
-  if (sharedButtonSize) {
-    const labels = btn.children.filter((child) => child.active).map((child) => find(child, "Label_Locale").widgets[0]);
-    const fs = Math.min(...labels.map((widget) => wrapPath(widget.text, 64, 40, 420, 2).fs));
-    for (const widget of labels) {
-      const fitted = wrapPath(widget.text, fs, fs, 420, 2);
-      Object.assign(widget, { text: fitted.text, fontSize: fs, w_: 420 });
-    }
   }
   find(t, "BlackBg/BlackBgClickArea").widgets.find((x) => "sprite" in x).color = "#000000/0.60";
   return t;
@@ -908,7 +900,7 @@ export function messageLayout({ lines = [], width = 1700, ok = null, cancel = nu
   return { body, width, height, visible, y0 };
 }
 
-async function showMessage({ title = "", lines = [], ok = null, cancel = null, buttons = null, sharedButtonSize = false, check = null, host: hostArg = "dialog", width, close: dismissable = true, confirmKeys = null, fitTogether = [], scroll = false, plain = false }, resolve) {
+async function showMessage({ title = "", lines = [], ok = null, cancel = null, buttons = null, check = null, host: hostArg = "dialog", width, close: dismissable = true, confirmKeys = null, fitTogether = [], scroll = false, plain = false }, resolve) {
   const host = hostOf(hostArg);
   const layer = document.createElement("div");
   layer.className = "popup-layer";
@@ -948,7 +940,7 @@ async function showMessage({ title = "", lines = [], ok = null, cancel = null, b
   }
   try {
     const { body, width: w, height, visible, y0 } = messageLayout({ lines, width, ok, cancel, buttons, check: state, fitTogether, scroll, plain });
-    const t = popupFrame(title, w, height, { ok, cancel, buttons, sharedButtonSize, close: dismissable });
+    const t = popupFrame(title, w, height, { ok, cancel, buttons, close: dismissable });
     const popup = find(t, "Popup");
     // the content in the middle of the room between the title and the buttons
     if (!scroll) {
