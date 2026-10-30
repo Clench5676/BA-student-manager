@@ -1799,7 +1799,7 @@
 			"count": "{page} / {total}",
 			"open": "보기",
 			"empty": "공개된 안내 없음",
-			"separator": " - "
+			"separator": ", "
 		}
 	}
 }

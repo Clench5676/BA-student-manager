@@ -1799,7 +1799,7 @@
 			"count": "{page} / {total}",
 			"open": "เปิด",
 			"empty": "ยังไม่มีทัวร์ฟีเจอร์",
-			"separator": " - "
+			"separator": ", "
 		}
 	}
 }

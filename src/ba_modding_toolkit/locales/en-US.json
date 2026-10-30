@@ -1799,7 +1799,7 @@
 			"count": "{page} / {total}",
 			"open": "Open",
 			"empty": "No published tours",
-			"separator": " - "
+			"separator": ", "
 		}
 	}
 }
