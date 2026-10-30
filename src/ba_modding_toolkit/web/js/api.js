@@ -16,6 +16,7 @@ export async function rpc(method, params = {}, { timeout = 0, signal } = {}) {
   signal?.addEventListener("abort", abort, { once: true });
   if (signal?.aborted) abort();
   const timer = timeout > 0 ? setTimeout(() => controller.abort(), timeout) : null;
+  const endRequest = globalThis.BAMTRecovery?.request?.();
   try {
     const res = await fetch("/api/rpc", {
       signal: controller.signal,
@@ -30,7 +31,7 @@ export async function rpc(method, params = {}, { timeout = 0, signal } = {}) {
   } catch (err) {
     if (err instanceof RpcError) throw err;
     throw new RpcError("internal", { error: String(err) });
-  } finally { clearTimeout(timer); signal?.removeEventListener("abort", abort); }
+  } finally { clearTimeout(timer); signal?.removeEventListener("abort", abort); endRequest?.(); }
 }
 
 const listeners = new Map();

@@ -3,7 +3,7 @@
   "use strict";
   const config = window.BAMT_CONFIG || {}, strings = config.strings || {};
   const T = (key) => strings[key] || key;
-  const began = Date.now(), pending = new Set(), timings = {}, seen = new Map(), sent = [];
+  const began = Date.now(), pending = new Set(), requests = new Set(), timings = {}, seen = new Map(), sent = [];
   let phase = "modules", finished = false, failed = false, panel = null, status = null, reporting = null, presenter = null;
   let webgl = { supported: null, renderer: null, disabled: !!config.safeMode };
   let importList = () => null;
@@ -134,11 +134,23 @@
   let watchdog;
   function progress() {
     clearTimeout(watchdog);
-    if (!finished && !failed) watchdog = setTimeout(() => fail(new Error(`Boot timeout: ${phase}`), "watchdog"), 45000);
+    if (finished || failed) return;
+    const remaining = 180000 - (Date.now() - began);
+    watchdog = setTimeout(() => {
+      // A live page awaiting backend work gets grace, but no activity can move the boot deadline.
+      if (requests.size && Date.now() - began < 180000) progress();
+      else fail(new Error(`Boot timeout: ${phase}`), "watchdog");
+    }, Math.max(0, Math.min(45000, remaining)));
   }
   progress();
   window.BAMTRecovery = {
-    activity() { if(Date.now()-began < 180000) progress(); },
+    activity() { if (Date.now() - began < 180000) progress(); },
+    request() {
+      if (finished || failed) return () => {};
+      const token = {};
+      requests.add(token); progress();
+      return () => { if (requests.delete(token)) progress(); };
+    },
     importList(read) { importList = read; },
     report, forward, fail, context, presentReport(fn) { presenter = fn; }, isBooting: () => !finished, failed: () => failed,
     begin(name) { if (finished) return; pending.add(name); if (name !== "boot") phase = name; progress(); },

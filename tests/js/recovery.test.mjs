@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import vm from "node:vm";
+import { rpc } from "../../src/ba_modding_toolkit/web/js/api.js";
 
 const source = readFileSync(new URL("../../src/ba_modding_toolkit/web/js/recovery.js", import.meta.url), "utf8");
 class El {
@@ -173,4 +174,108 @@ test("unsupported launches hide safe restart and popup reports carry their trigg
   const event = { kind: "popup", code: "busy", params: { operation: "apply" } };
   await h.api.report(event);
   assert.deepEqual(h.calls.find(([name]) => name === "app.report")[1].event, event);
+});
+
+test("a live boot request survives the reported 55.4-second cold export", async () => {
+  const h = harness();
+  h.api.begin("first-screen");
+  const done = h.api.request();
+  await h.advance(45000);
+  assert.equal(h.panel(), undefined);
+  await h.advance(10400);
+  done();
+  assert.equal(h.api.failed(), false);
+  h.api.ready();
+  await h.advance(180000);
+  assert.equal(h.panel(), undefined);
+});
+
+test("an unanswered request reaches recovery at the absolute 180-second deadline", async () => {
+  const h = harness();
+  h.api.begin("first-screen");
+  h.api.request();
+  for (let i = 0; i < 3; i++) {
+    await h.advance(45000);
+    assert.equal(h.panel(), undefined);
+  }
+  await h.advance(44999);
+  assert.equal(h.panel(), undefined);
+  await h.advance(1);
+  assert.ok(h.panel());
+  assert.ok(h.calls.some(([name, p]) => name === "app.frontendError"
+    && p.event?.message === "Boot timeout: first-screen"));
+});
+
+test("concurrent requests retain grace until the last body settles, then idle detection resumes", async () => {
+  const h = harness();
+  const first = h.api.request(), second = h.api.request();
+  await h.advance(45000);
+  first(); first(); // An owner may clean up twice without releasing another request.
+  await h.advance(45000);
+  assert.equal(h.panel(), undefined);
+  second();
+  await h.advance(44999);
+  assert.equal(h.panel(), undefined);
+  await h.advance(1);
+  assert.ok(h.panel());
+});
+
+test("request completions, phase changes and activity cannot extend the absolute deadline", async () => {
+  const h = harness();
+  for (let i = 0; i < 5; i++) {
+    await h.advance(30000);
+    h.api.begin("first-screen");
+    h.api.request()();
+    h.api.end("ui-indexes", 30000);
+    h.api.activity();
+    assert.equal(h.panel(), undefined);
+  }
+  await h.advance(29999);
+  h.api.activity();
+  await h.advance(1);
+  assert.ok(h.panel());
+});
+
+test("ready suppresses late request cleanup and requests made after boot", async () => {
+  const h = harness();
+  const late = h.api.request();
+  h.api.ready();
+  late();
+  h.api.request()();
+  await h.advance(180000);
+  assert.equal(h.panel(), undefined);
+});
+
+test("boot RPC tracks the response body and releases grace on every failure", async (t) => {
+  const saved = globalThis.BAMTRecovery;
+  t.after(() => { globalThis.BAMTRecovery = saved; });
+  for (const mode of ["success", "transport", "http", "json", "rpc", "abort"]) {
+    const h = harness();
+    globalThis.BAMTRecovery = h.api;
+    let resolveBody, rejectBody;
+    const body = new Promise((resolve, reject) => { resolveBody = resolve; rejectBody = reject; });
+    t.mock.method(globalThis, "fetch", async (url, options) => {
+      if (mode === "transport" || mode === "http") return body;
+      if (mode === "abort") {
+        options.signal.addEventListener("abort", () => rejectBody(new DOMException("Aborted", "AbortError")));
+        return body;
+      }
+      return { ok: true, json: () => body };
+    });
+    const controller = new AbortController();
+    const call = rpc("app.info", {}, { signal: controller.signal });
+    const observed = call.then(value => ({ value }), error => ({ error }));
+    await h.advance(55400);
+    assert.equal(h.panel(), undefined, mode);
+    if (mode === "transport" || mode === "json") rejectBody(new Error(mode));
+    else if (mode === "abort") controller.abort();
+    else if (mode === "http") resolveBody({ ok: false, status: 503 });
+    else if (mode === "rpc") resolveBody({ error: { code: "unavailable" } });
+    else resolveBody({ result: "ready" });
+    const result = await observed;
+    if (mode === "success") assert.equal(result.value, "ready");
+    else assert.ok(result.error, mode);
+    await h.advance(45000);
+    assert.ok(h.panel(), `${mode} must release its request`);
+  }
 });

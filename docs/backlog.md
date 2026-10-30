@@ -1422,7 +1422,7 @@ until the new one is ready.
 
 ## BL-062: Windows: slow first launch of a new build crashes, then reloads itself
 
-- Status: Diagnosed from the owner's report (2026-10-30); fix not started.
+- Status: Implemented for local review; owner acceptance on Windows pending.
 - Requested: 2026-10-29.
 
 The first launch after building alpha.12 on Windows took a long time and crashed again; before the error report
@@ -1446,6 +1446,59 @@ Likely cause of the missing tour, to be verified: `tours.py` treats a profile wi
 
 Fix plan: a pending boot request keeps the watchdog alive up to the existing 180-second bound; name the root in the
 layout timing and add the missing `PREFAB_HINTS`; tell an upgrade from a new install for the tour.
+
+Implementation (2026-10-30): `BAMTRecovery.request()` tracks boot RPC and UI index/layout requests through their
+response bodies. The live watchdog grants pending requests grace, restores the 45-second idle check when they
+settle, and caps every reset (including phase changes and `activity()`) at 180 seconds from page startup. Errors
+still recover immediately; ready and Safe Mode still cancel the watchdog. `Services._ui_asset` now measures
+`ui.layouts.<root>`, including failed exports.
+
+Cold measurements used only the official development view `steam-3557621-7791673520712697115-1955d55449`, with
+`bamt_dev.testing.isolate()` before importing the App. Each root had a new `GameAssets` instance and an empty,
+consented temporary `AssetCache`; requests ran through `Services._ui_asset`, including serialization. These are
+App-cache-cold macOS measurements, with OS file caching uncontrolled, not Windows boot times. The roots cover the
+default hall's loading, navigation and controls plus the roster's templates. No native App or browser was launched.
+
+| Root | Before (s) | After (s) |
+| --- | ---: | ---: |
+| UILoading | 0.7013 | 0.4602 |
+| UIRepeater | 0.4551 | 0.4085 |
+| UICharacterDetail | 0.5627 | 0.5109 |
+| UILobby | 0.4913 | 0.4490 |
+| UICharacterCollection | 0.4458 | 0.4228 |
+| UIPopup_Sort | 0.4316 | 0.4207 |
+| UIPopup_GachaCharList | 0.6177 | 0.5547 |
+| UIPopup_Option_PC | 0.4938 | 0.4558 |
+| UIPopup_FilterSort | 0.7059 | 0.6225 |
+| UIPopup_Formation_CharEdit | 0.8541 | 0.8065 |
+| UILobbyCharacterSelectPopup_Slot | 12.9323 | 0.4412 |
+| UICharacterCollectionPopulatorUnit | 1.1228 | 1.0697 |
+
+The hall's `UILobbyCharacterSelectPopup_Slot` was the only slow root: one full prefab scan took 12.5523 seconds.
+Its verified bundle is `ui-_mxload-prefabs-2025-07-02_assets_all_1360207439.bundle`; adding that `PREFAB_HINTS` entry
+removed the scan. The other roots scanned zero prefab indexes before and after. The Windows report omitted the
+root, so its exact 55.4-second request cannot be identified retrospectively; the measured cold default-screen
+scan is confirmed and future logs identify the root directly. Missing/renamed hints retain the existing fallback.
+
+The tour diagnosis is confirmed: `tours.launch` previously recorded the current version and selected nothing when
+`highest` was unset. Version 0.5.0 already persisted a boolean asset-consent answer. `UiState.__init__` snapshots
+whether that answer existed before this launch; `tours.launch` uses it only when no valid high-water version is
+available. Existing profiles queue available published tours and retry until presentation is acknowledged; a new
+install stays quiet even after its startup dialogs save consents. Existing high-water marks, acknowledgements,
+repeat/downgrade rules and publication gates retain priority. Profiles without a prior consent answer remain quiet
+because no earlier use is established. No tour copy or locale text changed.
+
+Regressions cover the reported long request, concurrent and body-pending requests, request success/failure/abort
+cleanup, idle recovery, the absolute deadline under continuing activity, ready cleanup, UI index tracking, named
+layout failure timings, valid/missing/renamed prefab hints, all twelve cold first-screen layouts without a prefab
+scan, historyless upgrades with either consent answer, fresh profiles with startup writes, pending/repeated/downgraded
+tours and RPC ready/Safe Mode gates. Native Windows cold launch, recovery presentation, tour presentation and visual
+acceptance remain the owner's.
+
+Validation: the prescribed isolated full pytest run passed (3,594 passed, 27 skipped, 3 existing locale deprecation
+warnings); the full Node suite passed (1,941 passed). Added 38 Python cases and 7 JavaScript cases, and extended the
+two existing layout-request tests. `git diff --check` passed. Git staging was refused by the sandbox when creating
+the worktree index lock, so the implementation remains uncommitted in this worktree.
 
 ## BL-063: Windows: the system pointer often replaces the game's pointer
 

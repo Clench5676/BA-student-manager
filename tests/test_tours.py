@@ -112,6 +112,58 @@ def test_first_install_empty_content_and_same_version_are_quiet(tmp_path, manife
     assert plan(state, 'invalid')['pages'] == []
 
 
+@pytest.mark.parametrize('consent', [True, False])
+@pytest.mark.parametrize('history', [None, {}, {'highest': None}])
+def test_pre_tour_profile_offers_upgrade_once_and_retries_until_presented(tmp_path, consent, history):
+    path = tmp_path / 'webui.json'
+    # 0.5.0 saved these choices, but had no tours/highest field.
+    profile = {'consent': consent, 'prefs': {'voice_muted': True, 'scan_consent': False}}
+    if history is not None:
+        profile['tours'] = history
+    path.write_text(json.dumps(profile), encoding='utf-8')
+    state = UiState(path)
+    assert state.had_asset_consent is True
+    pending = plan(state, '0.6.0-alpha.13')
+    assert pending['versions'] == ['0.6.0'] and len(pending['pages']) == 2
+    assert plan(UiState(path), '0.6.0-alpha.13') == pending
+    assert plan(UiState(path), '0.5.0')['pages'] == []
+    acknowledge(state, '0.6.0-alpha.13', pending)
+    for version in ('0.5.0', '0.6.0-alpha.13', '0.6.0-alpha.14', '0.6.0'):
+        assert plan(UiState(path), version)['pages'] == []
+    assert json.loads(path.read_text())['prefs'] == profile['prefs']
+    assert state.consent is consent
+
+
+@pytest.mark.parametrize('initial', [None, {}, {'prefs': {}}, {'consent': None}, {'consent': 'true'}])
+@pytest.mark.parametrize('answer', [True, False])
+def test_new_install_stays_quiet_after_startup_writes_and_consents(tmp_path, initial, answer):
+    path = tmp_path / 'webui.json'
+    if initial is not None:
+        path.write_text(json.dumps(initial), encoding='utf-8')
+    state = UiState(path)
+    assert state.had_asset_consent is False
+    # The first screen and startup popups may persist state before app.tours runs.
+    state.set('voice_muted', True)
+    state.set('spine_consent', answer)
+    state.set('scan_consent', answer)
+    state.set_consent(answer)
+    assert plan(state, '0.6.0-alpha.13')['pages'] == []
+    assert plan(UiState(path), '0.6.0-alpha.13')['pages'] == []
+
+
+def test_existing_tour_highest_takes_priority_over_persisted_consent(tmp_path, manifest):
+    path = tmp_path / 'webui.json'
+    path.write_text(json.dumps({'consent': True, 'tours': {
+        'highest': '0.7.0', 'pending': ['0.7.0'], 'presented': ['0.6.0'],
+    }}), encoding='utf-8')
+    state = UiState(path)
+    assert plan(state, '0.6.0')['pages'] == []
+    pending = plan(state, '0.7.0')
+    assert pending['versions'] == ['0.7.0']
+    acknowledge(state, '0.7.0', pending)
+    assert plan(UiState(path), '0.7.0')['pages'] == []
+
+
 def test_skipped_releases_use_newest_copy_deduplicate_and_acknowledge_on_display(tmp_path, manifest):
     state = UiState(tmp_path / 'webui.json')
     state.set('voice_muted', True)

@@ -91,7 +91,7 @@ def published(current: str, language: str) -> list[dict]:
 
 
 def launch(state: UiState, current: str, tours: list[dict]) -> dict:
-    """Keep a high-water version across downgrades; failed pre-renders remain pending on restart."""
+    """Offer upgrades to existing pre-tour profiles too; keep pending work and the downgrade high-water mark."""
     current_key = version_key(current)
     if current_key is None:
         return {'versions': [], 'pages': []}
@@ -99,17 +99,19 @@ def launch(state: UiState, current: str, tours: list[dict]) -> dict:
 
     def change(history: dict) -> None:
         high = version_key(history.get('highest'))
+        legacy_upgrade = high is None and state.had_asset_consent
         seen = history.get('presented', [])
         seen = {v for v in seen if version_key(v)} if isinstance(seen, list) else set()
         pending = history.get('pending', [])
         pending = {v for v in pending if version_key(v)} if isinstance(pending, list) else set()
-        if high is not None and current_key > high:
-            pending.update(t['version'] for t in tours if high < release_key(t['version'], current) <= current_key)
+        if legacy_upgrade or (high is not None and current_key > high):
+            pending.update(t['version'] for t in tours if release_key(t['version'], current) <= current_key
+                           and (high is None or high < release_key(t['version'], current)))
         if high is None or current_key > high:
             history['highest'] = current
         history['pending'] = sorted(pending - seen)
         # A downgrade never auto-presents, including content pending from a failed newer launch.
-        eligible = pending - seen if high is not None and current_key >= high else set()
+        eligible = pending - seen if legacy_upgrade or (high is not None and current_key >= high) else set()
         selected = [t for t in tours if t['version'] in eligible]
         ids, pages = set(), []
         for tour in selected:

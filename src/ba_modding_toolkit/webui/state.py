@@ -117,7 +117,10 @@ class UiState:
         self._lock = threading.RLock()
         self._data: dict[str, Any] = {}
         self._seen: tuple[int, int] | None = None  # the file's (mtime, size) when it was last read or written
-        prefs = self._current().get("prefs")
+        initial = self._current()
+        # Startup consents are saved before tours run. Only an answer from before this launch proves prior use.
+        self.had_asset_consent = isinstance(initial.get("consent"), bool)
+        prefs = initial.get("prefs")
         # Manual consent did not authorize automatic checks. Migrate it to Off without opting the user in.
         if isinstance(prefs, dict) and any(key in prefs for key in ("startup_checks", "mod_switch_shown")):
             def migrate(data: dict[str, Any]) -> None:

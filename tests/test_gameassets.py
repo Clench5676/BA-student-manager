@@ -756,6 +756,42 @@ def test_lobby_prefab_hint():
     assert is_prefab(Path(service.PREFAB_HINTS["UILobby"]))
 
 
+@pytest.mark.parametrize('hint_state', ['valid', 'missing', 'renamed-root'])
+def test_hall_slot_hint_avoids_scan_and_falls_back_after_game_updates(tmp_path, monkeypatch, hint_state):
+    root = 'UILobbyCharacterSelectPopup_Slot'
+    hint = tmp_path / service.PREFAB_HINTS[root]
+    fallback = tmp_path / 'updated-prefabs.bundle'
+    fallback.touch()
+    if hint_state != 'missing':
+        hint.touch()
+    game = GameAssets([tmp_path], AssetCache(root=tmp_path / 'cache'))
+    opened, scans = [], []
+
+    @contextmanager
+    def open_fake(path):
+        opened.append(path.name)
+        name = root if hint_state == 'valid' else 'AnotherRoot'
+        yield SimpleNamespace(container={f'assets/ui/{name}.prefab': None})
+
+    monkeypatch.setattr(service, 'open_bundle', open_fake)
+    monkeypatch.setattr(game, '_scan_prefabs', lambda: scans.append(True) or {root: fallback.name})
+    assert game._prefab_bundle(root) == (hint if hint_state == 'valid' else fallback)
+    assert len(scans) == (0 if hint_state == 'valid' else 1)
+    assert opened == ([] if hint_state == 'missing' else [hint.name])
+
+
+@real_install
+@pytest.mark.parametrize('root', [
+    'UILoading', 'UIRepeater', 'UICharacterDetail', 'UILobby', 'UICharacterCollection',
+    'UIPopup_Sort', 'UIPopup_GachaCharList', 'UIPopup_Option_PC', 'UIPopup_FilterSort',
+    'UIPopup_Formation_CharEdit', 'UILobbyCharacterSelectPopup_Slot', 'UICharacterCollectionPopulatorUnit',
+])
+def test_real_cold_first_screen_layouts_do_not_scan_prefabs(tmp_path, monkeypatch, root):
+    game = GameAssets(get_search_dirs(GAME_DIR), AssetCache(root=tmp_path / 'cache', allowed=True))
+    monkeypatch.setattr(game, '_scan_prefabs', lambda: pytest.fail(f'{root} must use its verified hint'))
+    assert game.layout(root)['name'] == root
+
+
 def test_unknown_names_raise_asset_not_found(tmp_path):
     game = GameAssets([tmp_path], AssetCache(root=tmp_path / "cache"))
     for call in (lambda: game.sprite_png("missing", "missing"), lambda: game.texture_png("missing"),

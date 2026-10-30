@@ -1,4 +1,4 @@
-"""Session timings without paths or asset names, also available in the session log."""
+"""Session timings without paths, also available in the session log."""
 
 from __future__ import annotations
 
