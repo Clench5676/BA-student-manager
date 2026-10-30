@@ -1745,6 +1745,40 @@ def test_tours_rpc_requires_normal_ready_and_keeps_replay_local(app, services, m
     assert len(rpc(app, 'app.tours')['result']['tours']) == 1
 
 
+@pytest.mark.parametrize('legacy', [True, False])
+@pytest.mark.parametrize('consent', [True, False])
+def test_historyless_profile_tour_rpc_distinguishes_upgrade_from_first_install(
+        app, services, monkeypatch, tmp_path, legacy, consent):
+    from ba_modding_toolkit.webui.state import UiState
+
+    path = tmp_path / 'tour-profile.json'
+    if legacy:
+        path.write_text(json.dumps({'consent': consent, 'prefs': {'spine_consent': False}}), encoding='utf-8')
+    services.state = UiState(path)
+    # A new install's dialogs finish before the automatic tour request.
+    services.state.set_consent(consent)
+    services.state.set('scan_consent', False)
+    monkeypatch.setattr('ba_modding_toolkit.utils.get_version_info', lambda: {'version': '0.6.0-alpha.13'})
+    monkeypatch.setattr(services, 'game_found', lambda: pytest.fail('tour must not inspect the game'))
+    monkeypatch.setattr(services, 'ready', lambda: None)
+    app.rpc = build_api(services)
+    assert rpc(app, 'app.tours', launching=True)['result']['automatic']['pages'] == []
+    assert 'tours' not in json.loads(path.read_text())
+    services.safe_mode = True
+    rpc(app, 'app.ready')
+    assert rpc(app, 'app.tours', launching=True)['result']['automatic']['pages'] == []
+    assert 'tours' not in json.loads(path.read_text())
+    services.safe_mode = False
+    rpc(app, 'app.ready')
+    automatic = rpc(app, 'app.tours', launching=True)['result']['automatic']
+    assert bool(automatic['pages']) is legacy
+    if legacy:
+        assert automatic['versions'] == ['0.6.0']
+        assert rpc(app, 'app.tourPresented', versions=automatic['versions']) == {'result': None}
+    services.state = UiState(path)
+    assert rpc(app, 'app.tours', launching=True)['result']['automatic']['pages'] == []
+
+
 @pytest.fixture
 def native_exit(services):
     from ba_modding_toolkit.webui.window_close import CloseCoordinator
