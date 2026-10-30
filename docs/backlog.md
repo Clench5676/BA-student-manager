@@ -1453,3 +1453,6 @@ layout timing and add the missing `PREFAB_HINTS`; tell an upgrade from a new ins
 - Requested: 2026-10-30.
 
 On Windows the mouse pointer often shows the system style instead of the game's `PCIcon_MousePoint` (`web/js/cursor.js`).
+Owner detail (2026-10-30): in an affected launch it stays the system pointer for the whole run, while the touch effect
+works, so the game textures load. Lead's reading: `initPointer` runs once and returns silently if the texture load,
+the cuts or `CSS.supports` fail; add a log line and a retry first, then read the next report.
