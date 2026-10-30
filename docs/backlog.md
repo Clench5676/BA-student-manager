@@ -1152,7 +1152,7 @@ forwarding to a running App, a window-less transient mode with a small result wi
 
 ## BL-055: First launch of 0.6.0-alpha.10 hangs on macOS
 
-- Status: Implemented for local review; owner UAT/visual acceptance pending. Loaded drop work cannot hold interpreter shutdown; the early loop-exit trigger remains logged and unresolved.
+- Status: Accepted by the owner on macOS (0.6.0 pre-review, 2026-10-30); the early loop-exit trigger stays logged and unresolved.
 - Requested: 2026-10-27.
 - Evidence: macOS hang report from the owner (`error report.txt` in the repository root, git-ignored, never commit
   it); the App process section is extracted to the lead's private brief folder.

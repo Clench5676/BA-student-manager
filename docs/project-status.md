@@ -1,6 +1,6 @@
 # Development status
 
-As of 2026-10-29. Verify the actual branch, working tree and `pyproject.toml` version before reporting progress.
+As of 2026-10-30. Verify the actual branch, working tree and `pyproject.toml` version before reporting progress.
 [Backlog](backlog.md) holds the detailed requirements and owner findings.
 
 ## Branch state
@@ -9,7 +9,7 @@ As of 2026-10-29. Verify the actual branch, working tree and `pyproject.toml` ve
 | --- | --- |
 | `main` | Local version `0.6.0`: the published 0.5.0 baseline, the upstream syncs after it, the 0.6.0-alpha.1 and alpha.2 review work, BL-020, BL-021, BL-040, BL-041, BL-043, BL-042, BL-044, BL-045, BL-046, BL-047, BL-048 the alpha.5 to alpha.8 review fixes and the prerelease-only BL-020/BL-021 previews (BL-037, BL-044, BL-047, BL-049 through BL-053), BL-055, BL-057 and BL-058. Not pushed. |
 
-The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since 0.5.0.
+0.6.0 is published (tag `0.6.0` at `817ebeda`, 2026-10-30): macOS build uploaded, Windows build by the release workflow.
 
 ## Feature state
 
@@ -45,7 +45,7 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-059 through BL-063 | Accepted by the owner on Windows (alpha.14) |
 | BL-064 | Accepted by the owner on Windows (alpha.15) |
 | BL-057, BL-058 | Accepted by the owner on macOS (alpha.12); Windows not reviewed |
-| BL-055 | Implemented for local review; owner UAT/visual acceptance pending. Loaded drop work cannot hold shutdown; early loop-exit trigger remains logged and unresolved. |
+| BL-055 | Accepted by the owner on macOS (0.6.0 pre-review) |
 | BL-014 | Candidate, not scheduled |
 | BL-016 through BL-018 | Deferred |
 
@@ -54,8 +54,8 @@ from passing tests or the presence of earlier code.
 
 ## Review artifact and validation
 
-`dist/Blue-Archive-Modding-and-Patching-Tool-0.6.0-alpha.12-macos-arm64.dmg`, MD5 `8cf157b7e4fd475be8fa25afce5dceaf`,
-built from `00ef7aba` (`chore(release): 0.6.0-alpha.12`). For review: BL-057 (English "alt") and BL-058 (Import screen).
+`dist/Blue-Archive-Modding-and-Patching-Tool-0.6.0-macos-arm64.dmg`, MD5 `d18e3aececa04fb9c6cdc87f576a6138`,
+built from `817ebeda` (`chore(release): 0.6.0`).
 
-On `main` before the build: 1,919 JavaScript tests passed; 3,408 Python tests passed, 26 skipped (with the official
+On `main` before the build: 1,965 JavaScript tests passed; 3,595 Python tests passed, 26 skipped (with the official
 development view). Native Windows behavior is not verified on the macOS host.
