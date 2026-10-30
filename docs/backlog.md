@@ -1503,10 +1503,49 @@ the cuts or `CSS.supports` fail; add a log line and a retry first, then read the
 
 ## BL-064: Windows follow-ups from alpha.14
 
-- Status: Sent to Codex (2026-10-30, owner's go-ahead).
+- Status: Implemented for owner review (2026-10-30); Windows and visual acceptance pending.
 - Requested: 2026-10-30.
 
 1. The new-features tour opens only some time after the first screen; find why and shorten the wait.
 2. Lists such as the student roster scroll without smooth scrolling on Windows.
 3. English release notes: the Open Release Page button's text overflows.
 4. The tour list joins page titles with " - "; use the language's comma.
+
+Findings and implementation:
+
+1. `main.boot` waited for the entire startup popup sequence before `Tours.start`. Its drift/untracked steps called
+   `Prompts.scanned`, which waited up to 10 seconds for `library.scanned` even with no dialog to show yet.
+   `mods.state.busy` does not include scans: it means an active Mod toggle or queued writes. `app.ready` starts
+   maintenance on a background thread, and `Popup.whenIdle(200)` polls immediately rather than sleeping first.
+   `Prompts.start` now uses completed scan results without waiting for an unfinished scan. Late results wait for
+   open popups, including the tour, and a final catch-up handles results arriving between startup steps.
+   `Prompts.isBusy` keeps prompt card preparation and actions ahead of the tour, alongside the existing loading,
+   writer/queue, recovery and popup gates. Consent and already-ready startup prompts retain their order.
+2. The roster is virtual: its wheel handler prevents native scrolling and updates `view.scroll` and the translated
+   row host immediately. Display/settings and the other vertical lists use native overflow; there was no shared
+   wheel easing. `horizontal-scroll.js` supplies a pure cubic `easeScroll` and a shared `wheelScroller` for Windows
+   notches, using the existing WebView2 wheel classification. The roster writes each intermediate position through
+   `applyScroll`, keeping rows and scrollbar synchronized. `main` installs delegated handling for every native
+   vertical overflow container, including dynamically created dialogs, import lists and logs. Repeated notches
+   accumulate; reversal, boundaries, stage scaling, cancellation and reduced motion are covered. Horizontal lists
+   retain `horizontal-scroll.js`; macOS trackpad pixels and momentum retain their existing path.
+3. `popupFrame` already fitted sibling captions together with `NGUI.fitLabels`, at most two lines within a 420 by
+   140 text area on the unchanged `UIPopup_Sort` button body (496 by 177). The release-notes-only
+   `sharedButtonSize` pass fitted that already-wrapped text again with `wrapPath`, counting embedded newlines
+   incorrectly and increasing English to three lines. Removed the redundant pass and option from `popupFrame`,
+   `showMessage` and `Update.releaseNotes`. The regression failed on English's three lines before the fix, then
+   passed for all six locales, at minimum/default/large windows and 1x/2x density, preserving geometry and wording.
+4. Only `webui.tour.separator` changes in `en-US`, `ko-KR` and `th-TH`, to `, `. The other three remain `、`.
+   The locale audit confirms no other wording changes; the tour-list test checks the joined titles in all six.
+
+New regressions: `startup_prompts.test.mjs` (5 cases), `vertical_scroll.test.mjs` (16 cases), and two cases in
+`popup.test.mjs` for release-note fit and localized tour-list joining. Existing `screen_loading.test.mjs` now also
+checks prompt preparation and recovery priority. No App, browser preview or screenshot was used. Windows wheel
+feel, startup timing on the owner's machine and actual font/visual acceptance remain the owner's review.
+
+Validation: the prescribed isolated full pytest run passed (3,594 passed, 27 skipped, 3 existing locale
+deprecation warnings); the full Node suite passed (1,965 passed, including 23 new cases). `git diff --check` passed.
+An initial test run refused to read a new, untracked scrolling source file under the development isolation
+policy. The implementation now reuses the tracked `horizontal-scroll.js`; the formerly failing case and both
+full suites pass without changing the isolation policy. Git staging was refused when creating the worktree's
+index lock, so the changes remain uncommitted in this worktree.
