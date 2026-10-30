@@ -32,10 +32,12 @@ import { previewCache } from "./preview-cache.js";
 import { ROOT_ROUTE, routeHistory } from "./route-history.js";
 import { setupWindowChrome } from "./window-chrome.js";
 import { installCloseGuard } from "./window-close.js";
+import { installVerticalWheel } from "./horizontal-scroll.js";
 
 installCloseGuard({ prepare: () => StudentHall.canLeave(), revision: StudentHall.closeRevision, root: () => [document.querySelector('.viewport'),
   document.querySelector('.window-header')].filter(Boolean) });
 setupWindowChrome();
+installVerticalWheel();
 
 globalThis.BAMTRecovery?.presentReport((result) => Popup.message({ title: T("recovery.report"),
   lines: result ? [T("recovery.saved"), result.path, T(result.copied ? "recovery.copied" : "recovery.copyFailed"),
