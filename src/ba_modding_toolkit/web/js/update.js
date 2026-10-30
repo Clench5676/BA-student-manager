@@ -19,7 +19,7 @@ export async function releaseNotes(info, { simulation = false, onSimulatedPage }
   const notes = typeof info.notes === "string" ? info.notes.trim() : "";
   const result = await Popup.message({ title: `${dialogTitle("update.notes", simulation)} - ${info.version}`,
     lines: notes ? notes.split(/\r?\n/) : [T("update.notesEmpty")], plain: true, scroll: true, width: 2458,
-    sharedButtonSize: true, buttons: [{ label: T("update.releasePage"), value: "page" },
+    buttons: [{ label: T("update.releasePage"), value: "page" },
       { label: T("display.close"), value: "dismiss" }] });
   if (result.button === "page") {
     if (simulation) await onSimulatedPage?.();

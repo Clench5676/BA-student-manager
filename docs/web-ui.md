@@ -1509,8 +1509,9 @@ download shows Download Complete with Later / Restart. Later keeps it for this s
 version opens ready to restart. Only Restart installs, and a refusal stays ready with an error and a retry. A
 successful retry clears the failure, so Later / Escape then resolve as `later`. A step that fails is logged and the
 next one comes. The prompts of mods back to official and of mods outside
-the library come last, once the start scan is in (at most 10 s; one that comes later shows them once no other popup
-is open), each when `startDue` says it is due: only with the scan consent, never while the game runs, Steam is busy
+the library come last if the start scan is already in. An unfinished scan stays in the background; its results
+show once no other popup is open, including a tour. Each prompt appears when `startDue` says it is due:
+only with the scan consent, never while the game runs, Steam is busy
 or the classic UI is open, no drift while mods are off, nothing dismissed (see Mods already in use).
 
 - **Switch Portrait, Switch Memorial Lobby** (the switch card of the Portrait and Memorial Lobby tabs; the add button

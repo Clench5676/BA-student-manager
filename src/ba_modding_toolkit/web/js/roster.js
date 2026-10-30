@@ -21,6 +21,7 @@ import { countNodes, countText, iconsOf } from "./mod-counts.js";
 import { rpc, spineBase } from "./api.js";
 import { L, T, language } from "./i18n.js";
 import { scrollbar } from "./scrollbar.js";
+import { wheelScroller } from "./horizontal-scroll.js";
 import { prioritise, thumbnailScope } from "./thumbs.js";
 import { spineAllowed } from "./spine-runtime.js";
 import { configuredKey, hasAsset, previewBase, primaryKind } from "./switch-sources.js";
@@ -48,6 +49,7 @@ let searchEl = null;
 let layouts = null, data = null, ctx = null, items = [], rows = new Map(), contentH = 0, rendered = new Map(), dirty = true;
 let countIcons = null;
 let dom = {}; // the list's live elements: clip, scroll host (the newest, maybe still built), scrollbar, empty list
+let wheelMotion = null;
 let building = false; // a frame is being built: the search box's keystrokes wait for it
 let thumbnailWork = thumbnailScope();
 
@@ -303,6 +305,7 @@ let listToken = 0;
 // the cards again for the current view (a search keystroke): the frame stays; the new rows are built off screen and
 // replace whatever the clip shows in one go (a relist overtaken by a newer one never swapped its rows in)
 async function relist() {
+  wheelMotion?.stop();
   const my = ++listToken;
   items = layoutItems();
   const scrollHost = document.createElement("div");
@@ -425,6 +428,7 @@ async function renderAll() {
   if (my === frameToken && searching && searchEl && searchEl.value !== query) searchLater(0);
 }
 async function buildFrame(my) {
+  wheelMotion?.stop();
   listToken += 1; // a search still building its rows gives way
   // a keystroke still waiting for its debounce is taken now: the rebuilt box starts from it
   clearTimeout(searchTimer);
@@ -452,17 +456,26 @@ async function buildFrame(my) {
   const empty = document.createElement("div");
   empty.className = "roster-empty";
   next.appendChild(empty);
+  const motion = wheelScroller({ read: () => view.scroll,
+    write: (top) => { view.scroll = top; applyScroll().catch(console.error); }, max: maxScroll,
+    page: () => CLIP_BOTTOM - clipTop(), scale: stageScaleNow,
+    alive: () => clip.isConnected && !$("screen-roster").hidden });
+  wheelMotion = motion;
   clip.addEventListener("wheel", (ev) => {
+    if (motion.wheel(ev)) return;
+    if (ev.ctrlKey) return;
     if (Math.abs(ev.deltaY) < Math.abs(ev.deltaX)) return; // horizontal trackpad swipes
     ev.preventDefault();
-    view.scroll += ev.deltaY / stageScaleNow();
+    const unit = ev.deltaMode === 1 ? 40 : ev.deltaMode === 2 ? CLIP_BOTTOM - clipTop() : 1 / stageScaleNow();
+    view.scroll += ev.deltaY * unit;
     applyScroll();
   }, { passive: false });
-  clip.addEventListener("pointerdown", (ev) => { drag = { y: ev.clientY, scroll: view.scroll }; ctx.dragged = false; });
+  clip.addEventListener("pointerdown", (ev) => { motion.stop(); drag = { y: ev.clientY, scroll: view.scroll }; ctx.dragged = false; });
   // a card focused from the keyboard is brought into view through the list's own position, so the rows, the
   // scrollbar and the virtual list stay in step; whatever still scrolls the clip itself (the browser showing a
   // focused card) goes the same way
   clip.addEventListener("focusin", (ev) => {
+    motion.stop();
     if (!ev.target.classList?.contains("card-hit")) return;
     const r = ev.target.getBoundingClientRect(), c = clip.getBoundingClientRect(), k = stageScaleNow();
     if (r.top < c.top) view.scroll -= (c.top - r.top) / k;
@@ -558,6 +571,7 @@ export async function show(context, rosterData) {
 }
 
 export function hide() {
+  wheelMotion?.stop();
   thumbnailWork.cancel();
   dirty = true;
 }

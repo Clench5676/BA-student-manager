@@ -180,8 +180,8 @@ export function overwrittenKind(files) {
 let names = async () => (e) => e?.variant || e?.core || "";
 const shown = { drift: new Set(), untracked: new Set() }; // entry|state shown by each prompt in this page
 let busy = false; // a prompt is open (or its action runs)
-let startScan = null;
 let started = false; // the start sequence reached its prompts: later scans may show them
+export const isBusy = () => busy; // includes async card preparation before the popup joins the stack
 
 export function init(options = {}) {
   if (options.names) names = options.names;
@@ -191,26 +191,19 @@ export function init(options = {}) {
   on("library.scanned", () => { later().catch((err) => console.error("prompts", err)); });
 }
 
-// the start scan: resolves once one has come in (or one was in before the page), at most 10 s
-function scanned() {
-  startScan ||= new Promise((resolve) => {
-    if (ModSwitch.current()?.scanned || ModSwitch.current()?.scan !== true) { resolve(); return; }
-    let off = null;
-    const timer = setTimeout(() => { off?.(); resolve(); }, 10000);
-    off = on("library.scanned", () => { clearTimeout(timer); off(); resolve(); });
-  });
-  return startScan;
-}
-
-// a step of the start sequence (main.js): the drift prompt, then the untracked prompt, each only when due
+// Ready scan results keep startup priority. An unfinished background scan never holds the usable first screen's tour.
 export async function start(which, info) {
   try {
-    await scanned();
     const s = await ModSwitch.refresh();
+    if (s?.scan === true && !s.scanned) return;
     const entries = s?.scan === true ? await rpc("mods.entries").catch(() => []) : [];
     if (ModSwitch.startDue(which, { info, state: s, entries })) await show(which, { entries });
   } finally {
-    if (which === "untracked") started = true;
+    if (which === "untracked") {
+      started = true;
+      // Catch a scan published between the startup steps, before later() was enabled.
+      later().catch((err) => console.error("prompts", err));
+    }
   }
 }
 
@@ -219,10 +212,12 @@ async function later() {
   await Popup.whenIdle();
   if (busy) return;
   const s = await ModSwitch.refresh();
-  if (s?.scan !== true) return;
+  if (s?.scan !== true || !s.scanned) return;
   const entries = await rpc("mods.entries").catch(() => []);
   for (const which of ["drift", "untracked"]) {
     if (!ModSwitch.startDue(which, { info: {}, state: s, entries })) continue;
+    await Popup.whenIdle();
+    if (busy) return;
     if (!fresh(promptEntries(entries, which, { enabled: s.enabled !== false }).listed, shown[which])) continue;
     await show(which, { entries });
   }
