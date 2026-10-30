@@ -8,6 +8,37 @@ When publishing a stable release, add its final changes with the actual version/
 release/compare links, and retain compatibility or migration notes. Release notes and feature tours are separate,
 human-reviewed presentation materials.
 
+## [0.6.0] - 2026-10-30
+
+### Added
+
+- Student thumbnail photography from the full-screen student details, with a per-character library, galleries shared
+  between alts, generated defaults and photo export.
+- Student Hall viewing zoom: wheel or pinch zooms the portrait scene, then pan to explore.
+- Release notes in update detection, separate from installing the update.
+- A dismissible new-version feature tour on the first launch after an update, replayable from Settings. Upgrades from
+  versions without tour history get it too.
+- Separate Global and Japanese game directories.
+
+### Changed
+
+- Interactive window resizing keeps the 16:9 stage, on Windows and macOS.
+- Batch Import's Select for Preview and Apply to Game moved into Advanced Options.
+- The CLI is no longer built, installed or released; scripts call `python -m ba_modding_toolkit.cli`.
+- Mouse wheel scrolling eases in vertical lists on Windows.
+
+### Fixed
+
+- A cold first launch no longer reports a false boot timeout while a request is still running; the Hall's slot prefab
+  no longer needs a full prefab scan.
+- Windows rendering seams, window shadow corners and toolbar overflow.
+- Text fit, alignment and interface details across the App.
+
+### Compatibility
+
+- Packaged macOS builds keep their data in `~/Library/Application Support/bluearchive-modding-patching-tool` and
+  migrate the legacy `BA-Modding-Toolkit` folder.
+
 ## [0.5.0] - 2026-10-24
 
 ### Added
@@ -172,6 +203,7 @@ for the classic toolkit's earlier v2 releases.
 | 0.1.0-alpha.2 | [alpha.1...alpha.2](https://github.com/Clench5676/BlueArchive-Modding-and-Patching-Tool/compare/0.1.0-alpha.1...0.1.0-alpha.2) |
 | 0.1.0-alpha.1 | [alpha...alpha.1](https://github.com/Clench5676/BlueArchive-Modding-and-Patching-Tool/compare/0.1.0-alpha...0.1.0-alpha.1) |
 
+[0.6.0]: https://github.com/Clench5676/BlueArchive-Modding-and-Patching-Tool/releases/tag/0.6.0
 [0.5.0]: https://github.com/Clench5676/BlueArchive-Modding-and-Patching-Tool/releases/tag/0.5.0
 [0.4.1]: https://github.com/Clench5676/BlueArchive-Modding-and-Patching-Tool/releases/tag/0.4.1
 [0.4.0]: https://github.com/Clench5676/BlueArchive-Modding-and-Patching-Tool/releases/tag/0.4.0

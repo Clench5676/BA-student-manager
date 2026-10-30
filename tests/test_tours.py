@@ -55,7 +55,7 @@ def acknowledge(state, version, planned):
 def test_review_manifest_matches_draft_and_is_text_only(current):
     from pathlib import Path
     draft = (Path(__file__).parents[1] / 'docs/tours/0.6.0-draft.md').read_text()
-    assert tours.PUBLISHED_TOURS[0]['approved'] == 'prerelease'
+    assert tours.PUBLISHED_TOURS[0]['approved'] is True
     for lang in tours.LOCALES:
         available = tours.published(current, lang)
         assert [t['version'] for t in available] == ['0.6.0']
@@ -70,6 +70,9 @@ def test_review_manifest_matches_draft_and_is_text_only(current):
 
 @pytest.mark.parametrize('current', ['0.6.0', '0.6.0+build.9', '0.7.0', 'invalid', '0.5.0-alpha.9'])
 def test_review_manifest_is_hidden_outside_eligible_prereleases(tmp_path, monkeypatch, current):
+    records = copy.deepcopy(tours.PUBLISHED_TOURS)
+    records[0]['approved'] = 'prerelease'
+    monkeypatch.setattr(tours, 'PUBLISHED_TOURS', records)
     monkeypatch.setattr(tours, 'ui_strings', lambda *args, **kwargs: pytest.fail('hidden tours must not load copy'))
     state = UiState(tmp_path / 'webui.json')
     plan(state, '0.5.0')

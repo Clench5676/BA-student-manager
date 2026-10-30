@@ -16,7 +16,7 @@ LOCALES = ('en-US', 'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'th-TH')
 # its title/body (80/320 characters) and optional caption are resolved without language fallback.
 PUBLISHED_TOURS: tuple[dict, ...] = ({
     'version': '0.6.0',
-    'approved': 'prerelease',
+    'approved': True,
     'pages': [
         {
             'id': 'student-thumbnails',

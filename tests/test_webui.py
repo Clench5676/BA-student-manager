@@ -1858,6 +1858,8 @@ def test_update_draft_preflight_precedes_native_timeout_and_reservation(app, ser
 def test_both_review_features_share_the_running_version_gate(app, services, monkeypatch, version, enabled, lang):
     from ba_modding_toolkit.i18n import i18n_manager
     from ba_modding_toolkit.webui import tours
+    # the gate itself, on a tour still under review
+    monkeypatch.setattr(tours, 'PUBLISHED_TOURS', tuple({**tour, 'approved': 'prerelease'} for tour in tours.PUBLISHED_TOURS))
     monkeypatch.setattr(i18n_manager, 'lang', lang)
     monkeypatch.setattr('ba_modding_toolkit.webui.api.get_version_info', lambda: {'version': version})
     monkeypatch.setattr('ba_modding_toolkit.utils.get_version_info', lambda: {'version': version})
