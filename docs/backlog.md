@@ -1379,9 +1379,7 @@ Owner findings on the Import screen:
 
 ## BL-059: Windows title bar: accent strip and native caption buttons
 
-- Status: Implemented for local review; owner acceptance on Windows pending.
-- Note: Windows uses the standard system title bar above the App; extended-caption W1 is removed. The prefab
-  toolbar has no native-button reservation and no HTML window controls.
+- Status: Accepted by the owner on Windows (alpha.14, 2026-10-30).
 - Requested: 2026-10-29.
 
 On Windows the native caption (BL-037's W1) shows a bar in the system accent colour along the top of the window, up
@@ -1397,11 +1395,7 @@ maximize. The game has no restore (two windows) icon.
 
 ## BL-060: Windows: blue lines at the stage edges during startup
 
-- Status: Implemented for local review; owner acceptance on Windows pending.
-- Note: Windows WM_SIZING constrains the DPI-adjusted client area to 16:9 at all eight edges/corners, with a
-  960 x 540 CSS-pixel minimum; startup uses client dimensions. macOS sets NSWindow.contentAspectRatio. Maximize
-  and fullscreen retain OS geometry. The stage fit and opaque loading-cover overlap remove header-induced bars
-  and fractional blue seams; real platform painting remains owner acceptance.
+- Status: Accepted by the owner on Windows (alpha.14, 2026-10-30).
 - Requested: 2026-10-29.
 
 While Now Loading shows, a thin blue vertical line runs down each side, about 28 px in from the window edges of a
@@ -1410,10 +1404,7 @@ own background shows past the loading cover at a fractional stage offset (Window
 
 ## BL-061: Windows: top bar background flickers while the window is resized
 
-- Status: Implemented for local review; owner acceptance on Windows pending.
-- Note: Background painting coalesces requests per animation frame and serializes raster generation. The last
-  decoded raster stays visible until its replacement has encoded and decoded; stale results and failures leave
-  it intact.
+- Status: Accepted by the owner on Windows (alpha.14, 2026-10-30).
 - Requested: 2026-10-29.
 
 Dragging the window wider or narrower makes the whole top bar background (`Common_Top_Menu_Bg`, drawn as one
@@ -1422,7 +1413,7 @@ until the new one is ready.
 
 ## BL-062: Windows: slow first launch of a new build crashes, then reloads itself
 
-- Status: Implemented for local review; owner acceptance on Windows pending.
+- Status: Accepted by the owner on Windows (alpha.14, 2026-10-30).
 - Requested: 2026-10-29.
 
 The first launch after building alpha.12 on Windows took a long time and crashed again; before the error report
@@ -1502,10 +1493,20 @@ the worktree index lock, so the implementation remains uncommitted in this workt
 
 ## BL-063: Windows: the system pointer often replaces the game's pointer
 
-- Status: Reported (2026-10-30, alpha.12 on Windows); where it happens not yet pinned down.
+- Status: Accepted by the owner on Windows (alpha.14, 2026-10-30).
 - Requested: 2026-10-30.
 
 On Windows the mouse pointer often shows the system style instead of the game's `PCIcon_MousePoint` (`web/js/cursor.js`).
 Owner detail (2026-10-30): in an affected launch it stays the system pointer for the whole run, while the touch effect
 works, so the game textures load. Lead's reading: `initPointer` runs once and returns silently if the texture load,
 the cuts or `CSS.supports` fail; add a log line and a retry first, then read the next report.
+
+## BL-064: Windows follow-ups from alpha.14
+
+- Status: Sent to Codex (2026-10-30, owner's go-ahead).
+- Requested: 2026-10-30.
+
+1. The new-features tour opens only some time after the first screen; find why and shorten the wait.
+2. Lists such as the student roster scroll without smooth scrolling on Windows.
+3. English release notes: the Open Release Page button's text overflows.
+4. The tour list joins page titles with " - "; use the language's comma.
