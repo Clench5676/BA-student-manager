@@ -271,14 +271,14 @@ test("startup scan prompts follow current consent without a separate startup mod
     .replace("export async function", "async function");
   const calls = [];
   const deps = {
-    scanned: async () => calls.push("wait"),
     ModSwitch: { refresh: async () => ({ scan: false }), startDue: () => false },
     rpc: () => assert.fail("Off must not fetch entries"), show: () => assert.fail("Off has no prompt"),
+    later: async () => calls.push("later"),
   };
-  const h = new Function("deps", `let { scanned, ModSwitch, rpc, show } = deps; let started = false; ${start} return { start, started: () => started };`)(deps);
+  const h = new Function("deps", `let { ModSwitch, rpc, show, later } = deps; let started = false; ${start} return { start, started: () => started };`)(deps);
   await h.start("drift", {});
   await h.start("untracked", {});
-  assert.deepEqual(calls, ["wait", "wait"]);
+  assert.deepEqual(calls, ["later"]);
   assert.equal(h.started(), true);
 });
 
@@ -286,7 +286,7 @@ function bootHarness({ compiled = true, startupUpdate = true } = {}) {
   const first = deferred(), consent = deferred(), update = deferred();
   const events = [], offers = [], blockers = [], tourOffers = [];
   const host = {}, modState = { busy: false };
-  let loading = false;
+  let loading = false, promptBusy = false, recovery = null;
   const env = {
     info: { gameFound: true, compiled, startupUpdate }, startup: {}, fitStage() {}, addEventListener() {},
     timed: (_phase, work) => work(), start: () => first.promise,
@@ -301,14 +301,15 @@ function bootHarness({ compiled = true, startupUpdate = true } = {}) {
       startDue: (name, { info }) => name === "update" ? info.compiled && info.startupUpdate !== false : ["consent", "scan"].includes(name),
     },
     Tours: { start: async (options) => { tourOffers.push(options); } },
-    document: { getElementById: () => null },
+    document: { getElementById: () => recovery },
     Consent: { show: () => { events.push("consent"); return consent.promise; }, scan: async () => events.push("scan") },
-    Prompts: { start: async (name) => events.push(name) },
+    Prompts: { start: async (name) => events.push(name), isBusy: () => promptBusy },
     Update: { check: (_host, _info, options) => { events.push("update-check"); offers.push(options); return update.promise; } },
   };
   const bootCode = source.slice(source.indexOf("async function boot("), source.indexOf("async function start()"));
   const boot = new Function("env", `let { ${Object.keys(env).join(", ")} } = env; ${bootCode} return boot;`)(env);
-  return { boot, first, consent, update, events, offers, blockers, tourOffers, modState, setLoading: (v) => { loading = v; } };
+  return { boot, first, consent, update, events, offers, blockers, tourOffers, modState, setLoading: (v) => { loading = v; },
+    setPromptBusy: v => { promptBusy = v; }, setRecovery: v => { recovery = v; } };
 }
 
 test("startup launches its update check only after reveal and finishes while the network is still pending", async () => {
@@ -381,5 +382,8 @@ test("the tour hook waits for first reveal and consents while a pending update n
   assert.equal(blocked(), false);
   h.setLoading(true); assert.equal(blocked(), true);
   h.setLoading(false); h.modState.busy = true; assert.equal(blocked(), true);
+  h.modState.busy = false; h.setPromptBusy(true); assert.equal(blocked(), true);
+  h.setPromptBusy(false); h.setRecovery({}); assert.equal(blocked(), true);
+  h.setRecovery(null); assert.equal(blocked(), false);
   h.update.resolve();
 });

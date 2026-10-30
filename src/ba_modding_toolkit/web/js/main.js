@@ -465,7 +465,7 @@ async function boot() {
     } }).catch((err) => console.error("update check", err));
   }
   await popups;
-  Tours.start({ info, ready, blocked: () => Loading.busy() || ModSwitch.current()?.busy
+  Tours.start({ info, ready, blocked: () => Loading.busy() || ModSwitch.current()?.busy || Prompts.isBusy()
     || !!document.getElementById("bamt-recovery") }).catch((err) => console.warn("feature tour", err));
 }
 
@@ -474,8 +474,8 @@ async function boot() {
 //   - the asset consent;
 //   - the Spine licence confirmation, while unanswered;
 //   - the scan consent, while it is unanswered and a game folder is known;
-//   - the prompts of mods back to official and of mods outside the library, once the start scan is in (at most
-//     10 s; a later scan shows them once no other popup is open), only with the scan consent
+//   - the prompts of mods back to official and of mods outside the library, if the start scan is already in;
+//     a later scan shows them once no other popup is open, only with the scan consent
 function startPopups() {
   const due = (name) => ModSwitch.startDue(name, { info, state: ModSwitch.current() });
   return [
