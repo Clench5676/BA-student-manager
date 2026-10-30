@@ -64,6 +64,8 @@ PREFAB_HINTS = {
     "UIPopup_Formation_CharEdit": "ui-_mxload-prefabs-2025-07-02_assets_all_762187506.bundle",
     "UIMailBox": "ui-_mxload-prefabs-2025-07-02_assets_all_2967155606.bundle",
     "UILobby": "ui-_mxload-prefabs-2025-07-02_assets_all_2178802179.bundle",
+    # the student hall's first-screen slot template
+    "UILobbyCharacterSelectPopup_Slot": "ui-_mxload-prefabs-2025-07-02_assets_all_1360207439.bundle",
 }
 
 

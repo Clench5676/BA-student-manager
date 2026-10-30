@@ -1300,8 +1300,9 @@ class Services:
         if len(parts) == 2 and parts[0] == "selection-frame":
             return AssetResponse(game.selection_frame_texture(_stem(parts[1])), "image/png", light=False)
         if len(parts) == 2 and parts[0] == "layout":
-            with self.timings.measure("ui.layouts"):
-                return _json(game.layout(_stem(parts[1]), query.get("path", "")), light=True)
+            root = _stem(parts[1])
+            with self.timings.measure(f"ui.layouts.{root}"):
+                return _json(game.layout(root, query.get("path", "")), light=True)
         raise KeyError("/".join(parts))
 
     def _install_game(self, install_id: str) -> Any:
