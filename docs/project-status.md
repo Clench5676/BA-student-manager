@@ -7,7 +7,7 @@ As of 2026-10-29. Verify the actual branch, working tree and `pyproject.toml` ve
 
 | Branch | State |
 | --- | --- |
-| `main` | Local version `0.6.0-alpha.14`: the published 0.5.0 baseline, the upstream syncs after it, the 0.6.0-alpha.1 and alpha.2 review work, BL-020, BL-021, BL-040, BL-041, BL-043, BL-042, BL-044, BL-045, BL-046, BL-047, BL-048 the alpha.5 to alpha.8 review fixes and the prerelease-only BL-020/BL-021 previews (BL-037, BL-044, BL-047, BL-049 through BL-053), BL-055, BL-057 and BL-058. Not pushed. |
+| `main` | Local version `0.6.0-alpha.15`: the published 0.5.0 baseline, the upstream syncs after it, the 0.6.0-alpha.1 and alpha.2 review work, BL-020, BL-021, BL-040, BL-041, BL-043, BL-042, BL-044, BL-045, BL-046, BL-047, BL-048 the alpha.5 to alpha.8 review fixes and the prerelease-only BL-020/BL-021 previews (BL-037, BL-044, BL-047, BL-049 through BL-053), BL-055, BL-057 and BL-058. Not pushed. |
 
 The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since 0.5.0.
 
@@ -43,7 +43,7 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-054 | Deferred by the owner for research; design proposal on file |
 | BL-056 | Funnel: AI-assisted portrait refinement, being refined |
 | BL-059 through BL-063 | Accepted by the owner on Windows (alpha.14) |
-| BL-064 | Windows follow-ups, sent to Codex |
+| BL-064 | Implemented for local review (alpha.15, Windows bundle); owner acceptance pending |
 | BL-057, BL-058 | Accepted by the owner on macOS (alpha.12); Windows not reviewed |
 | BL-055 | Implemented for local review; owner UAT/visual acceptance pending. Loaded drop work cannot hold shutdown; early loop-exit trigger remains logged and unresolved. |
 | BL-014 | Candidate, not scheduled |
