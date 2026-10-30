@@ -1503,7 +1503,7 @@ the cuts or `CSS.supports` fail; add a log line and a retry first, then read the
 
 ## BL-064: Windows follow-ups from alpha.14
 
-- Status: Implemented for owner review (2026-10-30); Windows and visual acceptance pending.
+- Status: Accepted by the owner on Windows (alpha.15, 2026-10-30).
 - Requested: 2026-10-30.
 
 1. The new-features tour opens only some time after the first screen; find why and shorten the wait.

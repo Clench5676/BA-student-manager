@@ -43,7 +43,7 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-054 | Deferred by the owner for research; design proposal on file |
 | BL-056 | Funnel: AI-assisted portrait refinement, being refined |
 | BL-059 through BL-063 | Accepted by the owner on Windows (alpha.14) |
-| BL-064 | Implemented for local review (alpha.15, Windows bundle); owner acceptance pending |
+| BL-064 | Accepted by the owner on Windows (alpha.15) |
 | BL-057, BL-058 | Accepted by the owner on macOS (alpha.12); Windows not reviewed |
 | BL-055 | Implemented for local review; owner UAT/visual acceptance pending. Loaded drop work cannot hold shutdown; early loop-exit trigger remains logged and unresolved. |
 | BL-014 | Candidate, not scheduled |
