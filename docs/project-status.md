@@ -43,7 +43,8 @@ The 0.6.0 work is unreleased. Nothing has been tagged, pushed or published since
 | BL-054 | Deferred by the owner for research; design proposal on file |
 | BL-056 | Funnel: AI-assisted portrait refinement, being refined |
 | BL-059 through BL-061 | Implemented for local review (alpha.13, Windows bundle); owner acceptance on Windows pending |
-| BL-062 | Reported on Windows (alpha.12): first-launch crash and missing tour; waiting for the owner's logs |
+| BL-062 | Diagnosed: false boot timeout on a 55-second cold layout, missing tour on upgrade from 0.5.0; fix not started |
+| BL-063 | Reported on Windows: system pointer replaces the game's; location not pinned down |
 | BL-057, BL-058 | Accepted by the owner on macOS (alpha.12); Windows not reviewed |
 | BL-055 | Implemented for local review; owner UAT/visual acceptance pending. Loaded drop work cannot hold shutdown; early loop-exit trigger remains logged and unresolved. |
 | BL-014 | Candidate, not scheduled |

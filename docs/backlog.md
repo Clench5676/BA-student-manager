@@ -1422,7 +1422,7 @@ until the new one is ready.
 
 ## BL-062: Windows: slow first launch of a new build crashes, then reloads itself
 
-- Status: Reported (2026-10-29, alpha.12 on Windows); waiting for the owner's logs.
+- Status: Diagnosed from the owner's report (2026-10-30); fix not started.
 - Requested: 2026-10-29.
 
 The first launch after building alpha.12 on Windows took a long time and crashed again; before the error report
@@ -1431,3 +1431,25 @@ and BL-055 (macOS first-launch hang). Evidence needed: `webui.log`, `webui.1.log
 folder beside the executable, copied before the next launches rotate them out.
 On the same first launch no new-features tour (BL-021) appeared, although it should open on the first launch after
 an update in prereleases.
+
+Diagnosis from the owner's report (`BAMT-report-0.6.0-alpha.12-20261030-0938.zip`, lead, 2026-10-30): no crash and no
+process restart. On the first launch one `ui.layouts` request took 55.4 s (cold layout export, the class of cause in
+BL-027). The front end's 45-second boot watchdog fired during that single request (`Boot timeout: first-screen`,
+21:08:37, showing the recovery panel); boot then finished at 21:08:44 and `BAMTRecovery.ready()` removed the panel,
+which looked like a self-reload. The next launch took 5.4 s. The timing lines do not name the layout root.
+
+The earlier `drag and drop is unavailable` TypeError and the double `loaded` come from W1's one initial reload,
+removed in alpha.13 (BL-059).
+
+Likely cause of the missing tour, to be verified: `tours.py` treats a profile without tour history as a new install
+(`highest` unset, nothing pending), so an upgrade from 0.5.0, which recorded no history, gets no tour.
+
+Fix plan: a pending boot request keeps the watchdog alive up to the existing 180-second bound; name the root in the
+layout timing and add the missing `PREFAB_HINTS`; tell an upgrade from a new install for the tour.
+
+## BL-063: Windows: the system pointer often replaces the game's pointer
+
+- Status: Reported (2026-10-30, alpha.12 on Windows); where it happens not yet pinned down.
+- Requested: 2026-10-30.
+
+On Windows the mouse pointer often shows the system style instead of the game's `PCIcon_MousePoint` (`web/js/cursor.js`).
