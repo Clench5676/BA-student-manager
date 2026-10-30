@@ -90,10 +90,16 @@ export function init() {
 }
 
 function assetIndex(url) {
-  return withTimeout(fetch(uiExportUrl(url), { cache: "no-store" }).then((r) => {
-    if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
-    return r.json();
-  }), 15000, url);
+  return withTimeout(assetJson(url, "no-store"), 15000, url);
+}
+
+async function assetJson(url, cache, label = url) {
+  const endRequest = globalThis.BAMTRecovery?.request?.();
+  try {
+    const response = await fetch(uiExportUrl(url), { cache });
+    if (!response.ok) throw new Error(`${label}: HTTP ${response.status}`);
+    return await response.json();
+  } finally { endRequest?.(); }
 }
 
 export function load(url, { signal } = {}) {
@@ -487,10 +493,8 @@ export function layout(name) {
     const [root, sub] = name.split(".");
     // Cold exports scan prefab bundles and can wait for a lobby's bundle locks. The scene owns the slow-load
     // indicator and navigation cancellation; elapsed time alone does not make a valid server response fail.
-    const request = sub ? layout(root).then((tree) => findNamed(tree, sub)) : fetch(uiExportUrl(`/asset/ui/layout/${encodeURIComponent(root)}.json`), { cache: "no-cache" }).then((r) => {
-      if (!r.ok) throw new Error(`layout ${root}: HTTP ${r.status}`);
-      return r.json();
-    }).then(value=>{globalThis.BAMTRecovery?.activity?.();return value;});
+    const request = sub ? layout(root).then((tree) => findNamed(tree, sub))
+      : assetJson(`/asset/ui/layout/${encodeURIComponent(root)}.json`, "no-cache", `layout ${root}`);
     const pending = request.then((tree) => {
       if (revision !== resourceRevision) throw new DOMException("Resource context changed", "AbortError");
       return tree;
